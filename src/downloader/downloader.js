@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const urlParams = new URLSearchParams(window.location.search);
   const playlistUrl = urlParams.get('playlistUrl');
   const courseTitle = urlParams.get('courseTitle') || 'Udemy Course';
+  const sectionTitle = urlParams.get('sectionTitle') || '';
   const rawLectureTitle = urlParams.get('lectureTitle') || 'Lecture';
   const lectureIndexParam = parseInt(urlParams.get('lectureIndex') || '1', 10);
   const quality = urlParams.get('quality') || '1080p';
@@ -23,7 +24,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const cleanTitle = cleanedMeta.title;
 
   // Cập nhật thông tin UI
-  document.getElementById('course-name').textContent = courseTitle;
+  document.getElementById('course-name').textContent = sectionTitle ? `${courseTitle} • ${sectionTitle}` : courseTitle;
   document.getElementById('lecture-name').textContent = `${padIndex(finalIndex)} - ${cleanTitle}`;
   document.getElementById('quality-badge').textContent = `${quality} HD`;
 
@@ -50,6 +51,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await startHlsDownloadProcess({
       playlistUrl,
       courseTitle,
+      sectionTitle,
       lectureTitle: cleanTitle,
       lectureIndex: finalIndex,
       quality
@@ -84,18 +86,20 @@ async function startHlsDownloadProcess(meta) {
   updateStatus('Đang hoàn thiện lưu file vào thư mục...', 'info');
 
   const cleanCourse = sanitizeName(meta.courseTitle, 'Udemy Course');
+  const cleanSection = sanitizeName(meta.sectionTitle, '');
   const cleanTitle = sanitizeName(meta.lectureTitle, 'Lesson');
   const indexStr = padIndex(meta.lectureIndex);
   // Tên file chuẩn: "[Index] - [Tên bài].mp4" (không gắn tag [1080p])
   const fileName = `${indexStr} - ${cleanTitle}.mp4`;
+  const folderDisplay = cleanSection ? `${cleanCourse}/${cleanSection}` : cleanCourse;
 
   // 1. Chế độ lưu vào Thư mục Ổ đĩa tùy chọn (File System Access API)
   if (settings.downloadMode === 'filesystem' && fsHandle) {
     try {
       const perm = await fsHandle.queryPermission({ mode: 'readwrite' });
       if (perm === 'granted') {
-        await saveBlobToFileSystem(fsHandle, cleanCourse, fileName, result.blob);
-        showCompletion(fileName, `Đã ghi thành công vào thư mục: ${fsHandle.name}/${cleanCourse}`);
+        await saveBlobToFileSystem(fsHandle, cleanCourse, cleanSection, fileName, result.blob);
+        showCompletion(fileName, `Đã ghi thành công vào thư mục: ${fsHandle.name}/${folderDisplay}`);
         return;
       }
     } catch (fsErr) {
@@ -107,6 +111,8 @@ async function startHlsDownloadProcess(meta) {
     promptFsSave({
       fsHandle,
       cleanCourse,
+      cleanSection,
+      folderDisplay,
       fileName,
       blob: result.blob,
       settings,
@@ -116,16 +122,16 @@ async function startHlsDownloadProcess(meta) {
   }
 
   // 2. Chế độ lưu vào Thư mục Downloads chuẩn (chrome.downloads)
-  await saveViaDownloadsApi(result.blob, meta, settings, fileName, cleanCourse);
+  await saveViaDownloadsApi(result.blob, meta, settings, fileName, folderDisplay);
 }
 
-function promptFsSave({ fsHandle, cleanCourse, fileName, blob, settings, meta }) {
+function promptFsSave({ fsHandle, cleanCourse, cleanSection, folderDisplay, fileName, blob, settings, meta }) {
   const permBox = document.getElementById('fs-permission-box');
   const targetNameEl = document.getElementById('fs-target-name');
   const btnGrant = document.getElementById('btn-grant-save');
   const btnFallback = document.getElementById('btn-fallback-download');
 
-  targetNameEl.textContent = `${fsHandle.name}/${cleanCourse}`;
+  targetNameEl.textContent = `${fsHandle.name}/${folderDisplay}`;
   permBox.classList.remove('hidden');
 
   updateStatus('Đã ghép xong video! Bấm nút bên dưới để hoàn tất lưu vào ổ đĩa.', 'info');
@@ -139,9 +145,9 @@ function promptFsSave({ fsHandle, cleanCourse, fileName, blob, settings, meta })
         perm = await fsHandle.requestPermission({ mode: 'readwrite' });
       }
       if (perm === 'granted') {
-        await saveBlobToFileSystem(fsHandle, cleanCourse, fileName, blob);
+        await saveBlobToFileSystem(fsHandle, cleanCourse, cleanSection, fileName, blob);
         permBox.classList.add('hidden');
-        showCompletion(fileName, `Đã ghi thành công vào thư mục: ${fsHandle.name}/${cleanCourse}`);
+        showCompletion(fileName, `Đã ghi thành công vào thư mục: ${fsHandle.name}/${folderDisplay}`);
         return;
       } else {
         alert('Trình duyệt chưa được cấp quyền ghi vào thư mục này.');
@@ -156,24 +162,29 @@ function promptFsSave({ fsHandle, cleanCourse, fileName, blob, settings, meta })
 
   btnFallback.onclick = async () => {
     permBox.classList.add('hidden');
-    await saveViaDownloadsApi(blob, meta, settings, fileName, cleanCourse);
+    await saveViaDownloadsApi(blob, meta, settings, fileName, folderDisplay);
   };
 }
 
-async function saveBlobToFileSystem(fsHandle, courseDirName, fileName, blob) {
+async function saveBlobToFileSystem(fsHandle, courseDirName, sectionDirName, fileName, blob) {
   const courseFolder = await fsHandle.getDirectoryHandle(courseDirName, { create: true });
-  const fileHandle = await courseFolder.getFileHandle(fileName, { create: true });
+  let targetFolder = courseFolder;
+  if (sectionDirName) {
+    targetFolder = await courseFolder.getDirectoryHandle(sectionDirName, { create: true });
+  }
+  const fileHandle = await targetFolder.getFileHandle(fileName, { create: true });
   const writable = await fileHandle.createWritable();
   await writable.write(blob);
   await writable.close();
 }
 
-async function saveViaDownloadsApi(blob, meta, settings, fileName, cleanCourse) {
+async function saveViaDownloadsApi(blob, meta, settings, fileName, folderDisplay) {
   updateStatus('Đang lưu qua trình quản lý tải xuống...', 'info');
   const blobUrl = URL.createObjectURL(blob);
   const relativePath = buildDownloadPath({
     baseFolder: settings.customFolder,
     courseTitle: meta.courseTitle,
+    sectionTitle: meta.sectionTitle,
     lectureIndex: meta.lectureIndex,
     lectureTitle: meta.lectureTitle,
     extension: 'mp4'
@@ -196,7 +207,7 @@ async function saveViaDownloadsApi(blob, meta, settings, fileName, cleanCourse) 
     );
   });
 
-  showCompletion(fileName, `Đã lưu vào Downloads/${settings.customFolder}/${cleanCourse}`);
+  showCompletion(fileName, `Đã lưu vào Downloads/${settings.customFolder}/${folderDisplay}`);
 }
 
 function handleProgressUpdate(info) {

@@ -59,6 +59,17 @@
     }, '*');
   }
 
+  function notifyCurriculumData(data, sourceUrl = '') {
+    try {
+      if (!data || !Array.isArray(data.results)) return;
+      window.postMessage({
+        type: 'UDEMY_CURRICULUM_INTERCEPTED',
+        results: data.results,
+        sourceUrl
+      }, '*');
+    } catch (e) {}
+  }
+
   // --------------------------------------------------------------------------
   // 1. Hook window.fetch
   // --------------------------------------------------------------------------
@@ -76,12 +87,20 @@
         }).catch(() => {});
       }
 
-      // 1.2 Bắt luồng HLS .m3u8
+      // 1.2 Bắt gói tin API chương mục toàn khóa học (Curriculum)
+      if (url.includes('/subscriber-curriculum-items/') || url.includes('/curriculum-items/')) {
+        const clone = response.clone();
+        clone.json().then(data => {
+          notifyCurriculumData(data, url);
+        }).catch(() => {});
+      }
+
+      // 1.3 Bắt luồng HLS .m3u8
       if (url.includes('.m3u8') || url.includes('/hls/') || url.includes('application/x-mpegURL')) {
         notifyM3u8Stream(url);
       }
 
-      // 1.3 Bắt file phụ đề .vtt
+      // 1.4 Bắt file phụ đề .vtt
       if (url.includes('.vtt') || url.includes('/captions/') || url.includes('/subtitles/')) {
         notifyCaption(url);
       }
@@ -109,6 +128,11 @@
             if (this.responseText) {
               const data = JSON.parse(this.responseText);
               notifyLectureData(data, url);
+            }
+          } else if (url.includes('/subscriber-curriculum-items/') || url.includes('/curriculum-items/')) {
+            if (this.responseText) {
+              const data = JSON.parse(this.responseText);
+              notifyCurriculumData(data, url);
             }
           } else if (url.includes('.m3u8') || url.includes('/hls/')) {
             notifyM3u8Stream(url);

@@ -100,6 +100,7 @@ async function handleDownload(options) {
   const {
     url,
     courseTitle = 'Udemy Course',
+    sectionTitle = '',
     lectureIndex = 1,
     lectureTitle = 'Lecture',
     quality = '',
@@ -119,6 +120,7 @@ async function handleDownload(options) {
     filename = buildDownloadPath({
       baseFolder: settings.customFolder,
       courseTitle,
+      sectionTitle,
       lectureIndex,
       lectureTitle: customFilename.replace(/\.[^/.]+$/, ''),
       extension: customFilename.split('.').pop() || extension,
@@ -128,6 +130,7 @@ async function handleDownload(options) {
     filename = buildDownloadPath({
       baseFolder: settings.customFolder,
       courseTitle,
+      sectionTitle,
       lectureIndex,
       lectureTitle,
       quality,

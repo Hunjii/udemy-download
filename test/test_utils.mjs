@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { convertVttToSrt } from '../src/utils/vtt2srt.js';
-import { sanitizeName, padIndex, buildDownloadPath, cleanLectureTitle } from '../src/utils/sanitizer.js';
+import { sanitizeName, padIndex, buildDownloadPath, cleanLectureTitle, cleanSectionTitle } from '../src/utils/sanitizer.js';
 
 console.log('--- BẮT ĐẦU KIỂM TRA UTILS ---');
 
@@ -113,6 +113,48 @@ const onlyForeign = [
   { id: '2', label: 'Deutsch', locale: 'de', url: 'http://example.com/de.vtt' }
 ];
 assert.strictEqual(findEnglishCaptionTest(onlyForeign), null, 'Nếu không có English thì phải trả về null');
-console.log('-> Lọc Phụ đề Tiếng Anh: ĐẠT');
+
+// 5. Kiểm tra Làm sạch tiêu đề Phần cha (Section) và đường dẫn lồng thư mục
+console.log('5. Kiểm tra Làm sạch Section & Thư mục lồng...');
+const s1 = cleanSectionTitle('Section 1: Introduction 0 / 5 | 22min');
+assert.strictEqual(s1, 'Section 01 - Introduction', 'Section 1 phải định dạng chuẩn');
+
+const s2 = cleanSectionTitle('Phần 3: Cài đặt công cụ 1 / 4 | 30 phút');
+assert.strictEqual(s2, 'Phần 03 - Cài đặt công cụ', 'Phần 3 tiếng Việt phải định dạng chuẩn');
+
+const s3 = cleanSectionTitle('Chapter 5: Advanced Python');
+assert.strictEqual(s3, 'Chapter 05 - Advanced Python', 'Chapter 5 phải định dạng chuẩn');
+
+const s4 = cleanSectionTitle('Getting Started', 2);
+assert.strictEqual(s4, 'Section 02 - Getting Started', 'Section không prefix từ API phải được thêm số thứ tự');
+
+const nestedVideoPath = buildDownloadPath({
+  baseFolder: 'Udemy Courses',
+  courseTitle: 'Fullstack Course',
+  sectionTitle: s1,
+  lectureIndex: 1,
+  lectureTitle: '01. Welcome to course',
+  extension: 'mp4'
+});
+assert.strictEqual(
+  nestedVideoPath,
+  'Udemy Courses/Fullstack Course/Section 01 - Introduction/001 - Welcome to course.mp4',
+  'Đường dẫn video phải chứa thư mục phần cha'
+);
+
+const nestedSubPath = buildDownloadPath({
+  baseFolder: 'Udemy Courses',
+  courseTitle: 'Fullstack Course',
+  sectionTitle: s1,
+  lectureIndex: 1,
+  lectureTitle: '01. Welcome to course',
+  extension: 'srt'
+});
+assert.strictEqual(
+  nestedSubPath,
+  'Udemy Courses/Fullstack Course/Section 01 - Introduction/001 - Welcome to course.srt',
+  'Đường dẫn phụ đề phải chứa thư mục phần cha và trùng khớp video'
+);
+console.log('-> Xử lý Thư mục Phần cha (Section): ĐẠT');
 
 console.log('=== TẤT CẢ TEST ĐÃ VƯỢT QUA XUẤT SẮC ===');

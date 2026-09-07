@@ -296,6 +296,15 @@ function renderLecture(data) {
   document.getElementById('lecture-title').textContent = finalTitle;
   document.getElementById('lecture-index-tag').textContent = `Bài ${padIndex(finalIndex)}`;
 
+  const sectionRow = document.getElementById('section-row');
+  const sectionTitleEl = document.getElementById('section-title');
+  if (data.sectionTitle) {
+    sectionTitleEl.textContent = data.sectionTitle;
+    sectionRow.classList.remove('hidden');
+  } else {
+    sectionRow.classList.add('hidden');
+  }
+
   const durationSec = data.duration || 0;
   const minutes = Math.floor(durationSec / 60);
   const seconds = durationSec % 60;
@@ -430,6 +439,7 @@ function renderSupplementaryAssets(assets) {
         payload: {
           url: item.downloadUrl,
           courseTitle: currentLecture.courseTitle,
+          sectionTitle: currentLecture.sectionTitle || '',
           customFilename: item.filename || item.title,
           subDir: 'Tai_Lieu'
         }
@@ -468,6 +478,7 @@ async function openDownloaderForStream(stream) {
     payload: {
       playlistUrl: stream.file,
       courseTitle: currentLecture.courseTitle,
+      sectionTitle: currentLecture.sectionTitle || '',
       lectureIndex: String(finalIndex),
       lectureTitle: finalTitle,
       quality: `${stream.label}p`
@@ -527,6 +538,7 @@ function initEngine2Controls() {
         payload: {
           url: blobUrl,
           courseTitle,
+          sectionTitle: currentLecture?.sectionTitle || '',
           lectureIndex: finalIndex,
           lectureTitle: finalTitle,
           extension: result.extension
@@ -596,18 +608,24 @@ async function downloadSubtitleAsSrt(subUrl) {
     const finalTitle = cleanedMeta.title;
     // Tên file phụ đề khớp 100% tên file video
     const fileName = `${padIndex(finalIndex)} - ${sanitizeName(finalTitle, 'Lesson')}.srt`;
+    const cleanCourse = sanitizeName(currentLecture.courseTitle, 'Udemy Course');
+    const cleanSection = sanitizeName(currentLecture.sectionTitle, '');
+    const folderDisplay = cleanSection ? `${cleanCourse}/${cleanSection}` : cleanCourse;
 
     // 2. Thử lưu vào Thư mục Ổ đĩa nếu đã có quyền
     if (hasFsPermission && activeFsHandle) {
       try {
-        const cleanCourse = sanitizeName(currentLecture.courseTitle, 'Udemy Course');
         const courseFolder = await activeFsHandle.getDirectoryHandle(cleanCourse, { create: true });
-        const fileHandle = await courseFolder.getFileHandle(fileName, { create: true });
+        let targetFolder = courseFolder;
+        if (cleanSection) {
+          targetFolder = await courseFolder.getDirectoryHandle(cleanSection, { create: true });
+        }
+        const fileHandle = await targetFolder.getFileHandle(fileName, { create: true });
         const writable = await fileHandle.createWritable();
         await writable.write(srtText);
         await writable.close();
 
-        showStatusBanner(`Đã lưu phụ đề vào thư mục: ${activeFsHandle.name}/${cleanCourse}/${fileName}`, 'success');
+        showStatusBanner(`Đã lưu phụ đề vào thư mục: ${activeFsHandle.name}/${folderDisplay}/${fileName}`, 'success');
         return;
       } catch (writeErr) {
         console.warn('File System Access bị lỗi khi ghi, chuyển sang Downloads:', writeErr);
@@ -623,6 +641,7 @@ async function downloadSubtitleAsSrt(subUrl) {
       payload: {
         url: blobUrl,
         courseTitle: currentLecture.courseTitle,
+        sectionTitle: currentLecture.sectionTitle || '',
         lectureIndex: finalIndex,
         lectureTitle: finalTitle, // Khớp 100% tên file video
         extension: 'srt'

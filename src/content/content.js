@@ -10,6 +10,7 @@
   let interceptedMasterM3u8 = null;
   let cachedCourseId = null;
   const interceptedCaptionsList = [];
+  const curriculumChapterMap = new Map();
 
   // --------------------------------------------------------------------------
   // 1. Nhúng injected.js vào MAIN world
@@ -32,7 +33,7 @@
   injectMainWorldScript();
 
   // --------------------------------------------------------------------------
-  // 2. Tiện ích làm sạch tiêu đề bài giảng
+  // 2. Tiện ích làm sạch tiêu đề bài giảng & phần cha
   // --------------------------------------------------------------------------
   function cleanLectureTitleInline(rawTitle) {
     if (!rawTitle || typeof rawTitle !== 'string') {
@@ -59,6 +60,48 @@
       title: cleaned || 'Lesson',
       index
     };
+  }
+
+  function cleanSectionTitleInline(rawSectionTitle, sectionIndex = null) {
+    if (!rawSectionTitle || typeof rawSectionTitle !== 'string') {
+      if (sectionIndex) {
+        return `Section ${String(sectionIndex).padStart(2, '0')}`;
+      }
+      return '';
+    }
+
+    let cleaned = rawSectionTitle
+      .replace(/(?:Chưa\s+hoàn\s+thành|Hoàn\s+thành|Incomplete|Completed|Uncompleted)/gi, ' ')
+      .replace(/\b\d+\s*\/\s*\d+\b/g, ' ')
+      .replace(/\|\s*.*$/g, '')
+      .replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, ' ')
+      .replace(/\b\d+\s*(?:phút|min|hr|h|giây|sec)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const prefixMatch = cleaned.match(/^(section|phần|chapter|chương)?\s*(\d+)[\.\s\-:]+/i);
+    let finalIndex = sectionIndex ? parseInt(sectionIndex, 10) : null;
+    let prefixWord = 'Section';
+
+    if (prefixMatch) {
+      if (prefixMatch[1]) {
+        prefixWord = prefixMatch[1].charAt(0).toUpperCase() + prefixMatch[1].slice(1).toLowerCase();
+      }
+      finalIndex = parseInt(prefixMatch[2], 10);
+      cleaned = cleaned.substring(prefixMatch[0].length).trim();
+    }
+
+    cleaned = cleaned.replace(/^[\.\s\-:]+/, '').trim();
+
+    if (finalIndex) {
+      const idxStr = String(finalIndex).padStart(2, '0');
+      if (cleaned) {
+        return `${prefixWord} ${idxStr} - ${cleaned.replace(/[\/\?<>\\:\*\|":]/g, '-')}`;
+      }
+      return `${prefixWord} ${idxStr}`;
+    }
+
+    return cleaned.replace(/[\/\?<>\\:\*\|":]/g, '-');
   }
 
   // --------------------------------------------------------------------------
@@ -264,6 +307,59 @@
       lectureIndex = titleMeta.index;
     }
 
+    // Trích xuất tiêu đề phần cha (Section / Chapter)
+    let rawSectionTitle = '';
+    let sectionIndex = null;
+
+    if (lectureId && curriculumChapterMap.has(String(lectureId))) {
+      const ch = curriculumChapterMap.get(String(lectureId));
+      rawSectionTitle = ch.title;
+      sectionIndex = ch.index;
+    }
+
+    if (!rawSectionTitle) {
+      const currentItemEl = document.querySelector('[class*="curriculum-item-link--is-current"]') ||
+        document.querySelector('[aria-current="true"]') ||
+        document.querySelector('[data-purpose="curriculum-item-title"]');
+
+      if (currentItemEl) {
+        const sectionPanel = currentItemEl.closest(
+          '[data-purpose*="section"], [class*="section--panel"], [class*="section--section"], [class*="accordion-panel"], .ud-accordion-panel, [class*="curriculum-section"]'
+        );
+        if (sectionPanel) {
+          const secTitleEl = sectionPanel.querySelector(
+            '[data-purpose="section-title"], [class*="section-title"], [class*="section--section-title"], [class*="panel-title"], button [class*="title"], h3, h4, [class*="header-title"]'
+          );
+          if (secTitleEl) {
+            const clone = secTitleEl.cloneNode(true);
+            clone.querySelectorAll('.sr-only, [class*="sr-only"], [class*="metadata"], [class*="duration"], svg, span[aria-hidden="true"]').forEach(el => el.remove());
+            rawSectionTitle = clone.textContent.trim();
+          }
+        }
+      }
+
+      if (!rawSectionTitle) {
+        const allSections = document.querySelectorAll(
+          '[data-purpose*="section"], [class*="section--panel"], [class*="accordion-panel"], .ud-accordion-panel'
+        );
+        for (const sec of allSections) {
+          if (sec.querySelector('[class*="curriculum-item-link--is-current"], [aria-current="true"]')) {
+            const secTitleEl = sec.querySelector(
+              '[data-purpose="section-title"], [class*="section-title"], [class*="section--section-title"], button [class*="title"], h3, h4'
+            );
+            if (secTitleEl) {
+              const clone = secTitleEl.cloneNode(true);
+              clone.querySelectorAll('.sr-only, [class*="sr-only"], [class*="metadata"], [class*="duration"], svg, span[aria-hidden="true"]').forEach(el => el.remove());
+              rawSectionTitle = clone.textContent.trim();
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    const sectionTitle = cleanSectionTitleInline(rawSectionTitle, sectionIndex);
+
     let courseId = cachedCourseId;
     if (!courseId) {
       const courseIdEl = document.querySelector('[data-course-id]') ||
@@ -286,6 +382,7 @@
       courseSlug,
       courseId,
       courseTitle,
+      sectionTitle,
       lectureTitle,
       lectureIndex
     };
@@ -470,11 +567,15 @@
     const finalLectureTitle = cleanedMeta.title;
     const finalLectureIndex = cleanedMeta.index || pageInfo.lectureIndex || 1;
     const finalCourseTitle = pageInfo.courseTitle || 'Udemy Course';
+    const rawSection = payload.chapter?.title || payload.section?.title || pageInfo.sectionTitle || '';
+    const sectionIdx = payload.chapter?.object_index || payload.section?.object_index;
+    const finalSectionTitle = cleanSectionTitleInline(rawSection, sectionIdx);
 
     const processedData = {
       lectureId: payload.id || pageInfo.lectureId,
       courseId: pageInfo.courseId || cachedCourseId,
       courseTitle: finalCourseTitle,
+      sectionTitle: finalSectionTitle,
       lectureTitle: finalLectureTitle,
       lectureIndex: finalLectureIndex,
       assetType: asset.asset_type || 'Video',
@@ -505,6 +606,26 @@
 
     if (event.data?.type === 'UDEMY_LECTURE_INTERCEPTED') {
       await processLecturePayload(event.data.payload);
+    } else if (event.data?.type === 'UDEMY_CURRICULUM_INTERCEPTED') {
+      const results = event.data.results || [];
+      let currentChapter = null;
+      results.forEach(item => {
+        if (item._class === 'chapter') {
+          currentChapter = { index: item.object_index, title: item.title };
+        } else if (item._class === 'lecture' && currentChapter) {
+          curriculumChapterMap.set(String(item.id), currentChapter);
+        }
+      });
+      if (currentLectureInfo && !currentLectureInfo.sectionTitle) {
+        const pageInfo = getCourseAndLectureInfoFromPage();
+        if (pageInfo.sectionTitle) {
+          currentLectureInfo.sectionTitle = pageInfo.sectionTitle;
+          chrome.runtime.sendMessage({
+            type: 'UPDATE_LECTURE_DATA',
+            data: currentLectureInfo
+          }).catch(() => {});
+        }
+      }
     } else if (event.data?.type === 'UDEMY_M3U8_INTERCEPTED') {
       interceptedMasterM3u8 = event.data.m3u8Url;
       if (currentLectureInfo && (!currentLectureInfo.streams || currentLectureInfo.streams.length === 0)) {
@@ -521,6 +642,39 @@
     }
   });
 
+  // Tải ngầm danh sách chương mục khóa học nếu có courseId
+  async function fetchCurriculumIfNeeded(courseId) {
+    if (!courseId || curriculumChapterMap.size > 0) return;
+    try {
+      const res = await fetch(`/api-2.0/courses/${courseId}/subscriber-curriculum-items/?page_size=1400&fields[lecture]=title,object_index&fields[chapter]=title,object_index`, {
+        credentials: 'include'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.results)) {
+          let currentChapter = null;
+          data.results.forEach(item => {
+            if (item._class === 'chapter') {
+              currentChapter = { index: item.object_index, title: item.title };
+            } else if (item._class === 'lecture' && currentChapter) {
+              curriculumChapterMap.set(String(item.id), currentChapter);
+            }
+          });
+          if (currentLectureInfo && !currentLectureInfo.sectionTitle) {
+            const pageInfo = getCourseAndLectureInfoFromPage();
+            if (pageInfo.sectionTitle) {
+              currentLectureInfo.sectionTitle = pageInfo.sectionTitle;
+              chrome.runtime.sendMessage({
+                type: 'UPDATE_LECTURE_DATA',
+                data: currentLectureInfo
+              }).catch(() => {});
+            }
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
   // --------------------------------------------------------------------------
   // 11. Fallback chủ động gọi API khi người dùng mở Popup
   // --------------------------------------------------------------------------
@@ -531,6 +685,10 @@
     let courseId = pageInfo.courseId;
     if (!courseId && pageInfo.courseSlug) {
       courseId = await resolveCourseId(pageInfo.courseSlug);
+    }
+
+    if (courseId) {
+      fetchCurriculumIfNeeded(courseId);
     }
 
     try {

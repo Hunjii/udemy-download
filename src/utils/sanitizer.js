@@ -88,10 +88,62 @@ export function padIndex(num, digits = 3) {
 }
 
 /**
- * Xây dựng đường dẫn file tải về: Chuẩn "[Index] - [Tên bài].[ext]" (Không gắn tag độ phân giải thừa)
+ * Làm sạch và định dạng tiêu đề phần cha (Section / Chapter / Phần)
+ * Chuẩn hóa thành: "Section 01 - [Tên phần]" hoặc "Phần 01 - [Tên phần]"
+ * @param {string} rawSectionTitle 
+ * @param {number|string} [sectionIndex]
+ * @returns {string}
+ */
+export function cleanSectionTitle(rawSectionTitle, sectionIndex = null) {
+  if (!rawSectionTitle || typeof rawSectionTitle !== 'string') {
+    if (sectionIndex) {
+      return `Section ${padIndex(sectionIndex, 2)}`;
+    }
+    return '';
+  }
+
+  // 1. Loại bỏ các nhãn trạng thái và thời lượng
+  let cleaned = rawSectionTitle
+    .replace(/(?:Chưa\s+hoàn\s+thành|Hoàn\s+thành|Incomplete|Completed|Uncompleted)/gi, ' ')
+    .replace(/\b\d+\s*\/\s*\d+\b/g, ' ') // bỏ "0 / 5" hoặc "3/8"
+    .replace(/\|\s*.*$/g, '')             // bỏ "| 22min"
+    .replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, ' ')
+    .replace(/\b\d+\s*(?:phút|min|hr|h|giây|sec)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // 2. Nhận diện tiền tố: Section, Phần, Chapter, Chương...
+  const prefixMatch = cleaned.match(/^(section|phần|chapter|chương)?\s*(\d+)[\.\s\-:]+/i);
+  let finalIndex = sectionIndex ? parseInt(sectionIndex, 10) : null;
+  let prefixWord = 'Section';
+
+  if (prefixMatch) {
+    if (prefixMatch[1]) {
+      prefixWord = prefixMatch[1].charAt(0).toUpperCase() + prefixMatch[1].slice(1).toLowerCase();
+    }
+    finalIndex = parseInt(prefixMatch[2], 10);
+    cleaned = cleaned.substring(prefixMatch[0].length).trim();
+  }
+
+  cleaned = cleaned.replace(/^[\.\s\-:]+/, '').trim();
+
+  if (finalIndex) {
+    const idxStr = padIndex(finalIndex, 2);
+    if (cleaned) {
+      return `${prefixWord} ${idxStr} - ${sanitizeName(cleaned, 'Chapter')}`;
+    }
+    return `${prefixWord} ${idxStr}`;
+  }
+
+  return sanitizeName(cleaned, '');
+}
+
+/**
+ * Xây dựng đường dẫn file tải về: Chuẩn "[Base]/[Course]/[Section]/[Index] - [Tên bài].[ext]"
  * @param {Object} params
  * @param {string} params.baseFolder - Thư mục cơ sở tùy chỉnh (ví dụ: "Udemy Courses")
  * @param {string} params.courseTitle - Tên khóa học
+ * @param {string} [params.sectionTitle] - Tên phần / chương cha
  * @param {number|string} params.lectureIndex - Số thứ tự bài giảng
  * @param {string} params.lectureTitle - Tên bài giảng
  * @param {string} params.extension - Đuôi file ("mp4", "srt", "pdf"...)
@@ -101,6 +153,7 @@ export function padIndex(num, digits = 3) {
 export function buildDownloadPath({
   baseFolder = 'Udemy Courses',
   courseTitle = 'Course',
+  sectionTitle = '',
   lectureIndex = 1,
   lectureTitle = 'Lecture',
   extension = 'mp4',
@@ -118,7 +171,15 @@ export function buildDownloadPath({
   const cleanCourse = sanitizeName(courseTitle, 'Udemy Course');
   parts.push(cleanCourse);
 
-  // 3. Thư mục con đặc biệt (ví dụ Tài liệu)
+  // 3. Thư mục phần cha (Section / Chapter folder) nếu có
+  if (sectionTitle) {
+    const cleanSection = sanitizeName(sectionTitle, '');
+    if (cleanSection) {
+      parts.push(cleanSection);
+    }
+  }
+
+  // 4. Thư mục con đặc biệt (ví dụ Tài liệu)
   if (subDir) {
     const cleanSubDir = sanitizeName(subDir, '');
     if (cleanSubDir) {
@@ -126,7 +187,7 @@ export function buildDownloadPath({
     }
   }
 
-  // 4. Tên file: Chuẩn xác "[Index] - [Tên bài].[ext]" (Video và Phụ đề có tên khớp nhau 100%)
+  // 5. Tên file: Chuẩn xác "[Index] - [Tên bài].[ext]" (Video và Phụ đề có tên khớp nhau 100%)
   const cleanedMeta = cleanLectureTitle(lectureTitle);
   const finalIndex = cleanedMeta.index || lectureIndex;
   const indexStr = padIndex(finalIndex);
