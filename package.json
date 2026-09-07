@@ -1,0 +1,9 @@
+{
+  "name": "udemy-lecture-video-downloader",
+  "version": "1.0.0",
+  "description": "Chrome/Edge Dev Extension tải video bài giảng Udemy chất lượng cao nhất",
+  "type": "module",
+  "scripts": {
+    "test": "node test/test_utils.mjs"
+  }
+}

@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Udemy Video Downloader</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>Udemy Downloader</h1>
+          <span class="version-tag">DUAL-ENGINE</span>
+        </div>
+      </div>
+      <!-- Tab Navigation -->
+      <nav class="nav-tabs">
+        <button id="tab-btn-download" class="nav-tab active" data-tab="download-tab">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+          </svg>
+          Bài giảng
+        </button>
+        <button id="tab-btn-settings" class="nav-tab" data-tab="settings-tab">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          Thư mục lưu
+        </button>
+      </nav>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- TAB 1: TẢI BÀI GIẢNG -->
+      <section id="download-tab" class="tab-pane active">
+        <!-- Thông báo trạng thái hoặc lỗi -->
+        <div id="status-banner" class="status-banner hidden"></div>
+
+        <!-- Trạng thái Đang quét / Tải -->
+        <div id="loading-state" class="state-container">
+          <div class="spinner"></div>
+          <p class="state-text">Đang nhận diện bài giảng và phân tích luồng HLS 1080p...</p>
+        </div>
+
+        <!-- Trạng thái Ngoài trang Udemy -->
+        <div id="not-udemy-state" class="state-container hidden">
+          <div class="state-icon warning">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+          </div>
+          <h3>Không tìm thấy bài giảng</h3>
+          <p>Vui lòng mở một khóa học trên <strong>udemy.com</strong> và bấm Phát (Play) bài giảng.</p>
+        </div>
+
+        <!-- Trạng thái Phát hiện Widevine DRM (Engine 2 Bypass) -->
+        <div id="drm-warning-state" class="state-container hidden">
+          <div class="state-icon alert">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+          </div>
+          <h3>Khóa học có bảo vệ DRM (Widevine)</h3>
+          <p style="margin-bottom: 12px;">Bài giảng này dùng luồng mã hóa bản quyền. Bạn có thể kích hoạt <strong>Engine 2</strong> để ghi lại luồng phát trực tiếp ở độ nét gốc!</p>
+          
+          <button id="btn-start-record" class="btn btn-primary full-width" style="background: linear-gradient(135deg, #ec5252, #f59e0b);">
+            <svg viewBox="0 0 24 24" fill="currentColor" style="width: 18px; height: 18px; margin-right: 6px;">
+              <circle cx="12" cy="8" r="8"/>
+            </svg>
+            Bật Engine 2: Ghi luồng phát (Bypass DRM)
+          </button>
+
+          <div id="record-status-box" class="record-box hidden" style="margin-top: 10px; width: 100%;">
+            <div style="display: flex; justify-content: space-between; font-weight: 700;">
+              <span style="color: #ef4444;">● Đang ghi: <span id="record-timer">00:00</span></span>
+              <span id="record-size" style="color: #6ee7b7;">0.0 MB</span>
+            </div>
+            <button id="btn-stop-record" class="btn btn-secondary full-width" style="margin-top: 8px;">
+              Dừng và Lưu video
+            </button>
+          </div>
+        </div>
+
+        <!-- Khung thông tin bài giảng và Nút tải -->
+        <div id="lecture-content" class="lecture-content hidden">
+          <!-- Course & Lecture Info Card -->
+          <div class="info-card">
+            <div class="course-name-row">
+              <span class="badge course-badge">Khóa học</span>
+              <span id="course-title" class="course-title">...</span>
+            </div>
+            <h2 id="lecture-title" class="lecture-title">...</h2>
+            <div class="meta-row">
+              <span id="lecture-index-tag" class="meta-tag">Bài 001</span>
+              <span id="duration-tag" class="meta-tag">00:00</span>
+              <span id="highest-quality-tag" class="meta-tag highlight">1080p HD</span>
+            </div>
+          </div>
+
+          <!-- Hero Action: Tải video cao nhất -->
+          <div class="hero-action-box">
+            <button id="btn-download-best" class="btn btn-primary btn-large">
+              <div class="btn-icon">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/>
+                </svg>
+              </div>
+              <div class="btn-text-group">
+                <span class="btn-main-text">TẢI VIDEO CAO NHẤT</span>
+                <span id="best-res-subtext" class="btn-sub-text">Độ phân giải 1080p MP4 (Engine 1)</span>
+              </div>
+            </button>
+          </div>
+
+          <!-- Accordion: Các độ phân giải khác -->
+          <div class="section-card">
+            <button id="accordion-toggle" class="accordion-header">
+              <div class="accordion-title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="23 7 16 12 23 17 23 7"/>
+                  <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                </svg>
+                <span>Tùy chọn độ phân giải khác</span>
+              </div>
+              <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+            <div id="qualities-list" class="accordion-body hidden">
+              <!-- Render danh sách chất lượng bằng JS -->
+            </div>
+          </div>
+
+          <!-- Subtitle Section (Chuyên dụng: Phụ đề Tiếng Anh 1-Click) -->
+          <div class="section-card">
+            <div class="section-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="4" width="20" height="16" rx="2"/>
+                <path d="M7 15h4M15 15h2M7 11h2M13 11h4"/>
+              </svg>
+              <span>Phụ đề Tiếng Anh (.srt)</span>
+            </div>
+            <div class="subtitles-row" style="padding: 10px 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+              <div class="caption-info-group" style="display: flex; flex-direction: column; gap: 2px;">
+                <span id="caption-status-text" style="font-size: 12px; font-weight: 600; color: #fff;">Đang tìm phụ đề...</span>
+                <span id="caption-sub-text" style="font-size: 10px; color: var(--text-muted);">Tự động khớp tên với video để xem offline</span>
+              </div>
+              <button id="btn-download-caption" class="btn btn-secondary" disabled style="display: flex; align-items: center; gap: 6px; white-space: nowrap;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                </svg>
+                Tải .SRT
+              </button>
+            </div>
+          </div>
+
+          <!-- Supplementary Resources Section -->
+          <div id="resources-section" class="section-card hidden">
+            <div class="section-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+                <polyline points="10 9 9 9 8 9"/>
+              </svg>
+              <span>Tài liệu đính kèm</span>
+            </div>
+            <div id="resources-list" class="resources-list">
+              <!-- Render danh sách tài liệu bằng JS -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: CÀI ĐẶT THƯ MỤC -->
+      <section id="settings-tab" class="tab-pane hidden">
+        <div class="settings-container">
+          <div class="settings-group">
+            <label class="settings-label">Phương thức và thư mục lưu trữ:</label>
+
+            <!-- Mode 1: Downloads chuẩn -->
+            <div class="radio-card">
+              <label class="radio-header">
+                <input type="radio" name="downloadMode" value="browser" id="mode-browser" checked>
+                <div class="radio-title-group">
+                  <strong>Thư mục Downloads (Khuyên dùng)</strong>
+                  <span class="radio-desc">Tải nhanh qua trình quản lý tải xuống của trình duyệt</span>
+                </div>
+              </label>
+              <div class="radio-content" id="browser-mode-options">
+                <label class="input-sublabel" for="input-custom-folder">Thư mục con phân loại:</label>
+                <div class="input-inline">
+                  <span class="folder-prefix">Downloads/</span>
+                  <input type="text" id="input-custom-folder" class="form-input" value="Udemy Courses" placeholder="Nhập tên thư mục...">
+                </div>
+                <p class="helper-text">Video sẽ được lưu vào: <code>Downloads/[Tên thư mục con]/[Tên khóa học]/...</code></p>
+              </div>
+            </div>
+
+            <!-- Mode 2: Direct Disk Folder (File System Access API) -->
+            <div class="radio-card">
+              <label class="radio-header">
+                <input type="radio" name="downloadMode" value="filesystem" id="mode-fs">
+                <div class="radio-title-group">
+                  <strong>Chọn thư mục tùy ý trên ổ đĩa (D:\, E:\...)</strong>
+                  <span class="radio-desc">Ghi trực tiếp file vào bất kỳ ổ đĩa nào trên máy tính</span>
+                </div>
+              </label>
+              <div class="radio-content" id="fs-mode-options">
+                <div class="fs-select-row">
+                  <button type="button" id="btn-select-fs-folder" class="btn btn-secondary">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                    </svg>
+                    Chọn thư mục trên máy tính...
+                  </button>
+                  <button type="button" id="btn-clear-fs-folder" class="btn btn-ghost text-danger hidden" title="Hủy liên kết">
+                    Xóa
+                  </button>
+                </div>
+                <div id="fs-folder-display" class="fs-folder-display">
+                  <span class="fs-label">Đang trỏ tới:</span>
+                  <span id="fs-folder-name" class="fs-name">Chưa chọn thư mục</span>
+                </div>
+                <p class="helper-text">Lưu ý: Bạn chỉ cần chọn một lần, tiện ích sẽ tự tạo thư mục khóa học bên trong ổ đĩa bạn đã chọn.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tùy chọn khác -->
+          <div class="settings-group">
+            <label class="settings-label">Tùy chọn bổ sung:</label>
+
+            <label class="toggle-option">
+              <input type="checkbox" id="toggle-prompt-save" class="checkbox-input">
+              <div class="toggle-text">
+                <span class="toggle-title">Bật hộp thoại "Save As" khi tải</span>
+                <span class="toggle-desc">Trình duyệt sẽ hỏi vị trí và tên file mỗi lần bấm tải</span>
+              </div>
+            </label>
+          </div>
+
+          <!-- Nút Lưu -->
+          <div class="settings-actions">
+            <button id="btn-save-settings" class="btn btn-primary full-width">
+              Lưu cài đặt
+            </button>
+            <div id="settings-success-msg" class="success-banner hidden">
+              Đã lưu cài đặt thành công!
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tiến trình tải video bài giảng - Udemy Downloader</title>
+  <link rel="stylesheet" href="downloader.css">
+</head>
+<body>
+  <div class="downloader-window">
+    <!-- Header -->
+    <header class="dl-header">
+      <div class="dl-brand">
+        <div class="dl-brand-icon">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/>
+          </svg>
+        </div>
+        <div>
+          <h1>Đang tải bài giảng Udemy</h1>
+          <span class="engine-badge">Engine 1: HLS to MP4</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="dl-content">
+      <!-- Course & Lecture info -->
+      <div class="info-card">
+        <span id="course-name" class="course-name">Đang nạp tên khóa học...</span>
+        <h2 id="lecture-name" class="lecture-name">Đang chuẩn bị...</h2>
+        <div class="tags-row">
+          <span id="quality-badge" class="tag-quality">1080p HD</span>
+          <span id="speed-badge" class="tag-meta">0.0 Mbps</span>
+          <span id="size-badge" class="tag-meta">0.0 MB</span>
+        </div>
+      </div>
+
+      <!-- Progress Section -->
+      <div class="progress-section">
+        <div class="progress-labels">
+          <span id="status-message" class="status-msg">Đang chuẩn bị tải các phân đoạn...</span>
+          <span id="percent-number" class="percent-num">0%</span>
+        </div>
+        <div class="progress-bar-track">
+          <div id="progress-bar-fill" class="progress-bar-fill" style="width: 0%;"></div>
+        </div>
+      </div>
+
+      <!-- Detail Metrics -->
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <span class="metric-label">Phân đoạn</span>
+          <span id="metric-segments" class="metric-value">0 / 0</span>
+        </div>
+        <div class="metric-card">
+          <span class="metric-label">Tốc độ mạng</span>
+          <span id="metric-speed" class="metric-value">0 Mbps</span>
+        </div>
+        <div class="metric-card">
+          <span class="metric-label">Dung lượng</span>
+          <span id="metric-size" class="metric-value">0 MB</span>
+        </div>
+      </div>
+
+      <!-- Permission Request Box for Custom Disk Folder -->
+      <div id="fs-permission-box" class="fs-permission-box hidden">
+        <div class="fs-info-row">
+          <div class="fs-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            </svg>
+          </div>
+          <div class="fs-text">
+            <span class="fs-title">Đã ghép xong video!</span>
+            <span class="fs-desc">Bấm nút để lưu vào thư mục ổ đĩa: <strong id="fs-target-name">...</strong></span>
+          </div>
+        </div>
+        <div class="fs-actions">
+          <button id="btn-grant-save" class="btn btn-save-fs">
+            💾 Lưu vào thư mục ổ đĩa
+          </button>
+          <button id="btn-fallback-download" class="btn btn-ghost-light">
+            Hoặc lưu vào Downloads
+          </button>
+        </div>
+      </div>
+
+      <!-- Success & Finish Box -->
+      <div id="finish-box" class="finish-box hidden">
+        <div class="finish-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+        </div>
+        <h3>Tải và ghép MP4 thành công!</h3>
+        <p id="finish-desc" class="finish-desc">File đã được lưu vào thư mục cấu hình của bạn.</p>
+      </div>
+
+      <!-- Actions -->
+      <div class="actions-row">
+        <button id="btn-cancel" class="btn btn-danger">Hủy tải</button>
+        <button id="btn-close" class="btn btn-primary hidden">Đóng cửa sổ</button>
+      </div>
+    </main>
+  </div>
+
+  <script type="module" src="downloader.js"></script>
+</body>
+</html>
