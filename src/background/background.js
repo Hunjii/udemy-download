@@ -53,6 +53,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           tabLectures.delete(tabId);
           tabM3u8Urls.delete(tabId);
         }
+
+        // Báo cho popup window (nếu đang mở) để cập nhật thông tin bài giảng mới
+        chrome.runtime.sendMessage({
+          type: 'LECTURE_DATA_UPDATED',
+          tabId,
+          data: message.data || null
+        }).catch(() => {});
       }
       sendResponse({ status: 'ok' });
       break;
@@ -194,3 +201,67 @@ async function checkDownloadStatus(downloadId) {
     });
   });
 }
+
+// ----------------------------------------------------------------------------
+// 5. Mở cửa sổ Popup độc lập (Không tự đóng khi click ra ngoài trang web)
+// ----------------------------------------------------------------------------
+let popupWindowId = null;
+
+chrome.action.onClicked.addListener(async (tab) => {
+  // 1. Nếu cửa sổ popup đang mở, đưa lên trên cùng (focus)
+  if (popupWindowId !== null) {
+    try {
+      const win = await chrome.windows.get(popupWindowId);
+      if (win) {
+        if (tab?.id) {
+          chrome.runtime.sendMessage({
+            type: 'TARGET_TAB_CHANGED',
+            tabId: tab.id
+          }).catch(() => {});
+        }
+        await chrome.windows.update(popupWindowId, { focused: true });
+        return;
+      }
+    } catch (e) {
+      popupWindowId = null;
+    }
+  }
+
+  // 2. Tính toán vị trí góc trên bên phải màn hình
+  const width = 450;
+  const height = 660;
+  let left = 100;
+  let top = 80;
+
+  try {
+    const currentWin = await chrome.windows.getCurrent();
+    if (currentWin.left !== undefined && currentWin.width !== undefined) {
+      left = Math.max(0, currentWin.left + currentWin.width - width - 20);
+      top = Math.max(0, currentWin.top + 70);
+    }
+  } catch (e) {}
+
+  const targetTabId = tab?.id || '';
+  const url = chrome.runtime.getURL(`src/popup/popup.html?tabId=${targetTabId}`);
+
+  try {
+    const newWin = await chrome.windows.create({
+      url,
+      type: 'popup',
+      width,
+      height,
+      left,
+      top
+    });
+    popupWindowId = newWin.id;
+  } catch (err) {
+    console.error('Lỗi khi mở cửa sổ popup:', err);
+  }
+});
+
+chrome.windows.onRemoved.addListener((windowId) => {
+  if (windowId === popupWindowId) {
+    popupWindowId = null;
+  }
+});
+

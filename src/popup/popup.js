@@ -18,12 +18,15 @@ let currentLecture = null;
 let currentSettings = null;
 let activeFsHandle = null;
 let tabRecorderInstance = null;
+let targetUdemyTab = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
   initTabs();
+  initWindowControls();
   await loadAndBindSettings();
   await detectCurrentLecture();
   initEngine2Controls();
+  setupEventListeners();
 });
 
 // ============================================================================
@@ -175,20 +178,115 @@ function updateFsFolderDisplay() {
 }
 
 // ============================================================================
-// 3. Nhận diện bài giảng đang xem
+// 3. Nhận diện bài giảng đang xem & Quản lý cửa sổ
 // ============================================================================
+function initWindowControls() {
+  const btnClose = document.getElementById('btn-close-window');
+  if (btnClose) {
+    btnClose.addEventListener('click', () => {
+      window.close();
+    });
+  }
+}
+
+function setupEventListeners() {
+  // Tự động làm mới khi người dùng click trở lại cửa sổ tiện ích
+  window.addEventListener('focus', () => {
+    detectCurrentLecture();
+  });
+
+  // Lắng nghe thông điệp từ background (đổi tab hoặc bài giảng mới được load)
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message.type === 'TARGET_TAB_CHANGED' && message.tabId) {
+      chrome.tabs.get(message.tabId).then((tab) => {
+        if (tab && tab.url && tab.url.includes('udemy.com')) {
+          targetUdemyTab = tab;
+          detectCurrentLecture();
+        }
+      }).catch(() => {});
+    } else if (message.type === 'LECTURE_DATA_UPDATED') {
+      if (!targetUdemyTab || targetUdemyTab.id === message.tabId) {
+        if (message.data) {
+          renderLecture(message.data);
+        } else {
+          detectCurrentLecture();
+        }
+      }
+    }
+  });
+}
+
+async function getActiveUdemyTab() {
+  // 1. Kiểm tra tabId truyền qua URL params (?tabId=...)
+  const urlParams = new URLSearchParams(window.location.search);
+  const tabIdParam = urlParams.get('tabId');
+  if (tabIdParam) {
+    try {
+      const tab = await chrome.tabs.get(parseInt(tabIdParam, 10));
+      if (tab && tab.url && tab.url.includes('udemy.com')) {
+        return tab;
+      }
+    } catch (e) {}
+  }
+
+  // 2. Tab đã lưu trước đó trong biến
+  if (targetUdemyTab && targetUdemyTab.id) {
+    try {
+      const tab = await chrome.tabs.get(targetUdemyTab.id);
+      if (tab && tab.url && tab.url.includes('udemy.com')) {
+        return tab;
+      }
+    } catch (e) {}
+  }
+
+  // 3. Tab đang hoạt động ở cửa sổ trình duyệt gần nhất (lastFocusedWindow)
+  try {
+    const [lastTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (lastTab && lastTab.url && lastTab.url.includes('udemy.com')) {
+      return lastTab;
+    }
+  } catch (e) {}
+
+  // 4. Bất kỳ tab active nào trên udemy.com qua các cửa sổ
+  try {
+    const activeUdemyTabs = await chrome.tabs.query({ active: true, url: '*://*.udemy.com/*' });
+    if (activeUdemyTabs && activeUdemyTabs.length > 0) {
+      return activeUdemyTabs[0];
+    }
+  } catch (e) {}
+
+  // 5. Bất kỳ tab nào trên udemy.com
+  try {
+    const allUdemyTabs = await chrome.tabs.query({ url: '*://*.udemy.com/*' });
+    if (allUdemyTabs && allUdemyTabs.length > 0) {
+      return allUdemyTabs[0];
+    }
+  } catch (e) {}
+
+  // 6. Fallback cửa sổ hiện tại (nếu chạy dưới dạng extension popup thường)
+  try {
+    const [currTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (currTab && currTab.url && currTab.url.includes('udemy.com')) {
+      return currTab;
+    }
+  } catch (e) {}
+
+  return null;
+}
+
 async function detectCurrentLecture() {
   const loadingState = document.getElementById('loading-state');
   const notUdemyState = document.getElementById('not-udemy-state');
   const drmWarningState = document.getElementById('drm-warning-state');
 
-  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const activeTab = await getActiveUdemyTab();
 
   if (!activeTab || !activeTab.url || !activeTab.url.includes('udemy.com')) {
     loadingState.classList.add('hidden');
     notUdemyState.classList.remove('hidden');
     return;
   }
+  targetUdemyTab = activeTab;
 
   // Tự động kiểm tra và inject content script nếu tab chưa có
   try {
@@ -388,7 +486,7 @@ function renderQualityList(streams, bestStream) {
 
 async function rescanCaptions() {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = targetUdemyTab || await getActiveUdemyTab();
     if (!tab?.id) return;
     const res = await new Promise(resolve => {
       chrome.tabs.sendMessage(tab.id, { type: 'FETCH_CAPTIONS_FORCE' }, resolve);
