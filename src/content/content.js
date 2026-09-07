@@ -109,7 +109,21 @@
   // --------------------------------------------------------------------------
   function resolveUrl(relativeOrAbsolute, baseUrl) {
     try {
-      return new URL(relativeOrAbsolute, baseUrl).href;
+      const base = new URL(baseUrl);
+      const resolved = new URL(relativeOrAbsolute, baseUrl);
+      if (!resolved.search && base.search) {
+        resolved.search = base.search;
+      } else if (resolved.search && base.search) {
+        const baseParams = new URLSearchParams(base.search);
+        const resParams = new URLSearchParams(resolved.search);
+        for (const [k, v] of baseParams.entries()) {
+          if (!resParams.has(k)) {
+            resParams.set(k, v);
+          }
+        }
+        resolved.search = resParams.toString();
+      }
+      return resolved.href;
     } catch (e) {
       return relativeOrAbsolute;
     }
@@ -702,6 +716,19 @@
           }).catch(() => {});
         }
       }
+    } else if (event.data?.type === 'UDEMY_URL_CHANGED') {
+      const pageInfo = getCourseAndLectureInfoFromPage();
+      if (pageInfo.lectureId && String(pageInfo.lectureId) !== String(currentLectureInfo?.lectureId)) {
+        console.log('[Udemy Downloader] Phát hiện chuyển bài giảng sang ID:', pageInfo.lectureId);
+        currentLectureInfo = null;
+        interceptedMasterM3u8 = null;
+        interceptedCaptionsList.length = 0;
+        chrome.runtime.sendMessage({
+          type: 'UPDATE_LECTURE_DATA',
+          data: null
+        }).catch(() => {});
+        setTimeout(fetchLectureApiDirectly, 600);
+      }
     }
   });
 
@@ -834,7 +861,16 @@
     }
 
     if (message.type === 'GET_CURRENT_LECTURE_FROM_PAGE') {
-      // Chỉ trả lời ngay nếu ĐÃ CÓ cả luồng phát VÀ phụ đề
+      const pageInfo = getCourseAndLectureInfoFromPage();
+
+      // Nếu bài giảng hiện tại trong URL khác với bài giảng trong cache, xóa cache cũ ngay lập tức!
+      if (currentLectureInfo && pageInfo.lectureId && String(currentLectureInfo.lectureId) !== String(pageInfo.lectureId)) {
+        currentLectureInfo = null;
+        interceptedMasterM3u8 = null;
+        interceptedCaptionsList.length = 0;
+      }
+
+      // Chỉ trả lời ngay nếu ĐÃ CÓ cả luồng phát VÀ phụ đề cho ĐÚNG bài giảng hiện tại
       if (currentLectureInfo && currentLectureInfo.streams?.length > 0 && currentLectureInfo.captions?.length > 0) {
         sendResponse({ success: true, data: currentLectureInfo });
         return true;
@@ -897,4 +933,24 @@
   });
 
   setTimeout(fetchLectureApiDirectly, 1500);
+
+  // Định kỳ giám sát URL để phát hiện chuyển bài trong SPA
+  let lastMonitoredLectureId = null;
+  setInterval(() => {
+    const pInfo = getCourseAndLectureInfoFromPage();
+    if (pInfo.lectureId && pInfo.lectureId !== lastMonitoredLectureId) {
+      lastMonitoredLectureId = pInfo.lectureId;
+      if (currentLectureInfo && String(currentLectureInfo.lectureId) !== String(pInfo.lectureId)) {
+        console.log('[Udemy Downloader] Định kỳ phát hiện bài mới:', pInfo.lectureId);
+        currentLectureInfo = null;
+        interceptedMasterM3u8 = null;
+        interceptedCaptionsList.length = 0;
+        chrome.runtime.sendMessage({
+          type: 'UPDATE_LECTURE_DATA',
+          data: null
+        }).catch(() => {});
+        fetchLectureApiDirectly();
+      }
+    }
+  }, 1000);
 })();

@@ -22,7 +22,7 @@ assert.strictEqual(variants.length, 2, 'Số lượng độ phân giải phải 
 assert.strictEqual(variants[0].label, '1080', 'Bản cao nhất phải là 1080');
 assert.strictEqual(subtitles.length, 2, 'Phải trích xuất được 2 ngôn ngữ phụ đề');
 assert.strictEqual(subtitles[0].label, 'English [Auto]', 'Tên phụ đề 1 chuẩn');
-assert.strictEqual(subtitles[0].url, 'https://udemy-cdn.com/stream/captions/en.vtt', 'URL phụ đề 1 chuẩn');
+assert.strictEqual(subtitles[0].url, 'https://udemy-cdn.com/stream/captions/en.vtt?token=xyz', 'URL phụ đề 1 chuẩn');
 assert.strictEqual(subtitles[1].label, 'Tiếng Việt', 'Tên phụ đề 2 chuẩn');
 
 // Kiểm tra Master Playlist với thuộc tính KHÔNG có dấu ngoặc kép (unquoted attributes)
@@ -64,5 +64,21 @@ assert.strictEqual(parsedMedia.totalDuration, 11.5, 'Tổng thời lượng là 
 assert.strictEqual(parsedMedia.segments[0].keyInfo?.method, 'AES-128', 'Phương thức mã hóa là AES-128');
 assert.strictEqual(parsedMedia.segments[0].keyInfo?.uri, 'https://udemy.com/api/key?token=123', 'Key URI chính xác');
 console.log('-> parseMediaPlaylist: ĐẠT');
+
+// 3. Kiểm tra bảo toàn token / query parameters trên segment relative URLs
+console.log('3. Kiểm tra bảo toàn Token/Query params trên phân đoạn...');
+const tokenMediaUrl = 'https://udemy-cdn.com/stream/1080/index.m3u8?token=SECRET_TOKEN_XYZ&hdnts=exp=999';
+const tokenParsedMedia = parseMediaPlaylist(sampleMedia, tokenMediaUrl);
+assert.strictEqual(
+  tokenParsedMedia.initSegmentUrl,
+  'https://udemy-cdn.com/stream/1080/init.mp4?token=SECRET_TOKEN_XYZ&hdnts=exp=999',
+  'Init segment URL phải giữ lại query params từ m3u8 cha'
+);
+assert.strictEqual(
+  tokenParsedMedia.segments[0].url,
+  'https://udemy-cdn.com/stream/1080/segment-0.m4s?token=SECRET_TOKEN_XYZ&hdnts=exp=999',
+  'Segment URL phải giữ lại query params từ m3u8 cha'
+);
+console.log('-> Bảo toàn Query Params: ĐẠT');
 
 console.log('=== TẤT CẢ KIỂM TRA HLS ĐỀU ĐẠT CHUẨN XUẤT SẮC ===');

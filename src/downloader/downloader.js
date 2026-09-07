@@ -76,7 +76,7 @@ async function startHlsDownloadProcess(meta) {
   // Gọi bộ tải đa luồng
   const result = await downloadHlsVideo({
     playlistUrl: meta.playlistUrl,
-    concurrency: 6,
+    concurrency: 5,
     signal: abortController.signal,
     onProgress: (info) => {
       handleProgressUpdate(info);

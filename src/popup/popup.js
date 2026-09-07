@@ -219,10 +219,17 @@ async function detectCurrentLecture() {
     }
   }
 
-  // 1. Thử lấy từ Background cache
+  const urlMatch = activeTab.url?.match(/\/lecture\/(\d+)/);
+  const expectedLectureId = urlMatch ? urlMatch[1] : null;
+
+  // 1. Thử lấy từ Background cache (chỉ nhận nếu đúng bài giảng hiện tại)
   try {
     const bgResponse = await new Promise((resolve) => {
-      chrome.runtime.sendMessage({ type: 'GET_LECTURE_DATA', tabId: activeTab.id }, resolve);
+      chrome.runtime.sendMessage({
+        type: 'GET_LECTURE_DATA',
+        tabId: activeTab.id,
+        expectedLectureId
+      }, resolve);
     });
 
     if (bgResponse && bgResponse.success && bgResponse.data) {

@@ -11,7 +11,21 @@
  */
 export function resolveUrl(relativeOrAbsolute, baseUrl) {
   try {
-    return new URL(relativeOrAbsolute, baseUrl).href;
+    const base = new URL(baseUrl);
+    const resolved = new URL(relativeOrAbsolute, baseUrl);
+    if (!resolved.search && base.search) {
+      resolved.search = base.search;
+    } else if (resolved.search && base.search) {
+      const baseParams = new URLSearchParams(base.search);
+      const resParams = new URLSearchParams(resolved.search);
+      for (const [k, v] of baseParams.entries()) {
+        if (!resParams.has(k)) {
+          resParams.set(k, v);
+        }
+      }
+      resolved.search = resParams.toString();
+    }
+    return resolved.href;
   } catch (e) {
     return relativeOrAbsolute;
   }

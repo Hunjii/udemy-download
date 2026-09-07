@@ -223,4 +223,44 @@
       }
     });
   }, 2000);
+
+  // --------------------------------------------------------------------------
+  // 5. Theo dõi chuyển bài giảng trong SPA (pushState, replaceState, popstate)
+  // --------------------------------------------------------------------------
+  function handleUrlChange() {
+    window.__UDEMY_LATEST_LECTURE_DATA__ = null;
+    window.__UDEMY_LATEST_M3U8_URL__ = null;
+    window.__UDEMY_INTERCEPTED_CAPTIONS__ = [];
+    window.__UDEMY_INTERCEPTED_CAPTIONS_LIST__ = [];
+
+    window.postMessage({
+      type: 'UDEMY_URL_CHANGED',
+      url: window.location.href,
+      timestamp: Date.now()
+    }, '*');
+  }
+
+  const origPushState = history.pushState;
+  history.pushState = function (...args) {
+    const res = origPushState.apply(this, args);
+    handleUrlChange();
+    return res;
+  };
+
+  const origReplaceState = history.replaceState;
+  history.replaceState = function (...args) {
+    const res = origReplaceState.apply(this, args);
+    handleUrlChange();
+    return res;
+  };
+
+  window.addEventListener('popstate', handleUrlChange);
+
+  let prevUrl = window.location.href;
+  setInterval(() => {
+    if (window.location.href !== prevUrl) {
+      prevUrl = window.location.href;
+      handleUrlChange();
+    }
+  }, 600);
 })();

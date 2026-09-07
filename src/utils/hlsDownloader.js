@@ -59,6 +59,10 @@ export async function downloadHlsVideo({
 
   const { isFmp4, initSegmentUrl, segments, totalDuration } = parsed;
 
+  if (parsed.keyInfo && (parsed.keyInfo.method === 'SAMPLE-AES' || parsed.keyInfo.method?.includes('SAMPLE'))) {
+    throw new Error('Video này được mã hóa bảo vệ bản quyền (SAMPLE-AES / Widevine DRM). Vui lòng dùng Engine 2 (Ghi luồng phát Tab) trong tiện ích để tải.');
+  }
+
   if (!segments || segments.length === 0) {
     throw new Error('Playlist không chứa phân đoạn video nào khả dụng');
   }
@@ -131,11 +135,13 @@ export async function downloadHlsVideo({
       let attempts = 0;
       let success = false;
 
-      while (!success && attempts < 3) {
+      while (!success && attempts < 5) {
         try {
           attempts++;
           const segRes = await fetch(segment.url, { credentials: 'include', signal });
-          if (!segRes.ok) throw new Error(`HTTP ${segRes.status}`);
+          if (!segRes.ok) {
+            throw new Error(`HTTP ${segRes.status} (${segRes.statusText || 'Error'})`);
+          }
 
           let rawData = await segRes.arrayBuffer();
 
@@ -149,7 +155,11 @@ export async function downloadHlsVideo({
               } else {
                 iv = getIvFromSeqNumber(segment.index);
               }
-              rawData = await crypto.subtle.decrypt({ name: 'AES-CBC', iv }, cryptoKey, rawData);
+              try {
+                rawData = await crypto.subtle.decrypt({ name: 'AES-CBC', iv }, cryptoKey, rawData);
+              } catch (decErr) {
+                throw new Error(`Giải mã AES-128 thất bại: ${decErr.message}`);
+              }
             }
           }
 
@@ -174,11 +184,17 @@ export async function downloadHlsVideo({
             message: `Đang tải: ${completedCount}/${totalSegments} phân đoạn (${totalMb}MB - ${speedMbps} Mbps)`
           });
         } catch (err) {
-          if (attempts >= 3) {
-            throw new Error(`Lỗi tải phân đoạn ${currentIndex + 1}/${totalSegments}: ${err.message}`);
+          if (signal?.aborted) throw err;
+          if (attempts >= 5) {
+            let detail = err.message;
+            if (detail.includes('403') || detail.includes('401')) {
+              detail += ' - Token phân đoạn đã hết hạn. Vui lòng bấm Phát (Play) video bài giảng trên Udemy rồi tải lại.';
+            }
+            throw new Error(`Lỗi tải phân đoạn ${currentIndex + 1}/${totalSegments}: ${detail}`);
           }
-          // Chờ một chút rồi thử lại
-          await new Promise(r => setTimeout(r, 600));
+          // Chờ theo lũy tiến (exponential backoff)
+          const delay = Math.min(800 * Math.pow(1.5, attempts - 1), 4000);
+          await new Promise(r => setTimeout(r, delay));
         }
       }
     }
