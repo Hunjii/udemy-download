@@ -11,6 +11,32 @@
   let cachedCourseId = null;
   const interceptedCaptionsList = [];
   const curriculumChapterMap = new Map();
+  const curriculumLectureMap = new Map();
+  const curriculumOrderList = [];
+
+  function storeCurriculumResults(results) {
+    if (!Array.isArray(results)) return;
+    let currentChapter = null;
+    curriculumOrderList.length = 0;
+    results.forEach(item => {
+      if (item._class === 'chapter') {
+        currentChapter = { index: item.object_index, title: item.title };
+      } else if (item._class === 'lecture' || item._class === 'quiz' || item._class === 'practice') {
+        const entry = {
+          id: String(item.id),
+          index: item.object_index,
+          title: item.title,
+          type: item._class,
+          chapter: currentChapter
+        };
+        curriculumLectureMap.set(String(item.id), entry);
+        curriculumOrderList.push(entry);
+        if (currentChapter) {
+          curriculumChapterMap.set(String(item.id), currentChapter);
+        }
+      }
+    });
+  }
 
   // --------------------------------------------------------------------------
   // 1. Nhúng injected.js vào MAIN world
@@ -355,8 +381,26 @@
 
     const titleMeta = cleanLectureTitleInline(rawLectureTitle);
     const lectureTitle = titleMeta.title;
-    if (titleMeta.index) {
+    if (lectureId && curriculumLectureMap.has(String(lectureId))) {
+      lectureIndex = curriculumLectureMap.get(String(lectureId)).index;
+    } else if (titleMeta.index) {
       lectureIndex = titleMeta.index;
+    } else {
+      const curItem = document.querySelector('[class*="curriculum-item-link--is-current"]') ||
+        document.querySelector('[aria-current="true"]') ||
+        (lectureId ? document.querySelector(`a[href*="/lecture/${lectureId}"]`) : null);
+      if (curItem) {
+        const itemMeta = cleanLectureTitleInline(curItem.textContent || '');
+        if (itemMeta.index) {
+          lectureIndex = itemMeta.index;
+        } else {
+          const idxEl = curItem.querySelector('[class*="section-item-index"], [class*="item-index"], [data-purpose*="item-index"]');
+          if (idxEl) {
+            const parsed = parseInt(idxEl.textContent.trim(), 10);
+            if (!isNaN(parsed) && parsed > 0) lectureIndex = parsed;
+          }
+        }
+      }
     }
 
     // Trích xuất tiêu đề phần cha (Section / Chapter)
@@ -678,7 +722,7 @@
     const rawTitle = payload.title || pageInfo.lectureTitle || `Lecture ${pageInfo.lectureId || ''}`;
     const cleanedMeta = cleanLectureTitleInline(rawTitle);
     const finalLectureTitle = cleanedMeta.title;
-    const finalLectureIndex = cleanedMeta.index || pageInfo.lectureIndex || 1;
+    const finalLectureIndex = payload.object_index || (payload.id && curriculumLectureMap.get(String(payload.id))?.index) || cleanedMeta.index || pageInfo.lectureIndex || 1;
     const finalCourseTitle = pageInfo.courseTitle || 'Udemy Course';
     const rawSection = payload.chapter?.title || payload.section?.title || pageInfo.sectionTitle || '';
     const sectionIdx = payload.chapter?.object_index || payload.section?.object_index;
@@ -690,6 +734,7 @@
       courseTitle: finalCourseTitle,
       sectionTitle: finalSectionTitle,
       lectureTitle: finalLectureTitle,
+      lectureIndex: finalLectureIndex,
       assetType: asset.asset_type || (window.location.pathname.includes('/quiz/') ? 'Quiz' : 'Video'),
       isQuiz: payload._class === 'quiz' || window.location.pathname.includes('/quiz/'),
       isArticle: asset.asset_type === 'Article' || payload._class === 'article',
@@ -785,18 +830,21 @@
       await processLecturePayload(event.data.payload);
     } else if (event.data?.type === 'UDEMY_CURRICULUM_INTERCEPTED') {
       const results = event.data.results || [];
-      let currentChapter = null;
-      results.forEach(item => {
-        if (item._class === 'chapter') {
-          currentChapter = { index: item.object_index, title: item.title };
-        } else if (item._class === 'lecture' && currentChapter) {
-          curriculumChapterMap.set(String(item.id), currentChapter);
+      storeCurriculumResults(results);
+      if (currentLectureInfo) {
+        let changed = false;
+        if (!currentLectureInfo.sectionTitle) {
+          const pageInfo = getCourseAndLectureInfoFromPage();
+          if (pageInfo.sectionTitle) {
+            currentLectureInfo.sectionTitle = pageInfo.sectionTitle;
+            changed = true;
+          }
         }
-      });
-      if (currentLectureInfo && !currentLectureInfo.sectionTitle) {
-        const pageInfo = getCourseAndLectureInfoFromPage();
-        if (pageInfo.sectionTitle) {
-          currentLectureInfo.sectionTitle = pageInfo.sectionTitle;
+        if (!currentLectureInfo.lectureIndex && currentLectureInfo.lectureId && curriculumLectureMap.has(String(currentLectureInfo.lectureId))) {
+          currentLectureInfo.lectureIndex = curriculumLectureMap.get(String(currentLectureInfo.lectureId)).index;
+          changed = true;
+        }
+        if (changed) {
           chrome.runtime.sendMessage({
             type: 'UPDATE_LECTURE_DATA',
             data: currentLectureInfo
@@ -880,26 +928,29 @@
 
   // Tải ngầm danh sách chương mục khóa học nếu có courseId
   async function fetchCurriculumIfNeeded(courseId) {
-    if (!courseId || curriculumChapterMap.size > 0) return;
+    if (!courseId || curriculumLectureMap.size > 0) return;
     try {
-      const res = await fetch(`/api-2.0/courses/${courseId}/subscriber-curriculum-items/?page_size=1400&fields[lecture]=title,object_index&fields[chapter]=title,object_index`, {
+      const res = await fetch(`/api-2.0/courses/${courseId}/subscriber-curriculum-items/?page_size=1400&fields[lecture]=title,object_index&fields[chapter]=title,object_index&fields[quiz]=title,object_index&fields[practice]=title,object_index`, {
         credentials: 'include'
       });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.results)) {
-          let currentChapter = null;
-          data.results.forEach(item => {
-            if (item._class === 'chapter') {
-              currentChapter = { index: item.object_index, title: item.title };
-            } else if (item._class === 'lecture' && currentChapter) {
-              curriculumChapterMap.set(String(item.id), currentChapter);
+          storeCurriculumResults(data.results);
+          if (currentLectureInfo) {
+            let changed = false;
+            if (!currentLectureInfo.sectionTitle) {
+              const pageInfo = getCourseAndLectureInfoFromPage();
+              if (pageInfo.sectionTitle) {
+                currentLectureInfo.sectionTitle = pageInfo.sectionTitle;
+                changed = true;
+              }
             }
-          });
-          if (currentLectureInfo && !currentLectureInfo.sectionTitle) {
-            const pageInfo = getCourseAndLectureInfoFromPage();
-            if (pageInfo.sectionTitle) {
-              currentLectureInfo.sectionTitle = pageInfo.sectionTitle;
+            if (!currentLectureInfo.lectureIndex && currentLectureInfo.lectureId && curriculumLectureMap.has(String(currentLectureInfo.lectureId))) {
+              currentLectureInfo.lectureIndex = curriculumLectureMap.get(String(currentLectureInfo.lectureId)).index;
+              changed = true;
+            }
+            if (changed) {
               chrome.runtime.sendMessage({
                 type: 'UPDATE_LECTURE_DATA',
                 data: currentLectureInfo
@@ -965,8 +1016,8 @@
     try {
       const captionField = '&fields[caption]=@default,url,locale_id,title,video_label,source';
       const url = courseId
-        ? `/api-2.0/users/me/subscribed-courses/${courseId}/lectures/${pageInfo.lectureId}/?fields[lecture]=title,asset,supplementary_assets,description,download_urls,captions&fields[asset]=@default,stream_urls,download_urls,captions,media_sources,media_license_token,course_is_drmed${captionField}`
-        : `/api-2.0/lectures/${pageInfo.lectureId}/?fields[lecture]=title,asset,supplementary_assets,description,download_urls,captions&fields[asset]=@default,stream_urls,download_urls,captions,media_sources,media_license_token,course_is_drmed${captionField}`;
+        ? `/api-2.0/users/me/subscribed-courses/${courseId}/lectures/${pageInfo.lectureId}/?fields[lecture]=title,object_index,asset,supplementary_assets,description,download_urls,captions&fields[asset]=@default,stream_urls,download_urls,captions,media_sources,media_license_token,course_is_drmed${captionField}`
+        : `/api-2.0/lectures/${pageInfo.lectureId}/?fields[lecture]=title,object_index,asset,supplementary_assets,description,download_urls,captions&fields[asset]=@default,stream_urls,download_urls,captions,media_sources,media_license_token,course_is_drmed${captionField}`;
 
       const res = await fetch(url, {
         credentials: 'include',
@@ -1095,49 +1146,121 @@
   // 14. Kích hoạt chuyển sang bài giảng tiếp theo (Auto Next)
   // --------------------------------------------------------------------------
   function triggerNextLecture() {
-    // 1. Thử click nút Next trên thanh điều khiển video của Udemy
-    const nextButtons = [
-      document.querySelector('[data-purpose="go-to-next-lecture-button"]'),
-      document.querySelector('[data-purpose="next-lecture-button"]'),
-      document.querySelector('button[class*="next-lecture"]'),
-      document.querySelector('[aria-label="Next lecture"]'),
-      document.querySelector('[aria-label="Bài giảng tiếp theo"]'),
-      document.querySelector('[aria-label="Next"]'),
-      document.querySelector('[class*="go-to-next"]')
+    const pageInfo = getCourseAndLectureInfoFromPage();
+    const currentLecId = String(pageInfo.lectureId || currentLectureInfo?.lectureId || '');
+    const courseSlug = pageInfo.courseSlug || '';
+
+    // 1. Thử click nút Next trên thanh điều khiển video / giao diện bài học của Udemy
+    const nextSelectors = [
+      '[data-purpose="go-to-next-button"]',
+      '[data-purpose="go-to-next-lecture-button"]',
+      '[data-purpose="next-lecture-button"]',
+      '[data-purpose="next-item"]',
+      '[data-purpose="next-button"]',
+      'button[data-purpose*="next"]',
+      'a[data-purpose*="next"]',
+      'button[data-purpose*="go-to-next"]',
+      'a[data-purpose*="go-to-next"]',
+      'button[aria-label*="next" i]',
+      'a[aria-label*="next" i]',
+      'button[aria-label*="tiếp" i]',
+      'a[aria-label*="tiếp" i]',
+      'button[class*="next-lecture"]',
+      'a[class*="next-lecture"]',
+      '[class*="go-to-next"]',
+      'button[class*="next-button"]',
+      'a[class*="next-button"]'
     ];
 
-    for (const btn of nextButtons) {
-      if (btn && typeof btn.click === 'function' && !btn.disabled) {
-        console.log('[Udemy Downloader] Kích hoạt Next qua nút điều khiển video');
-        btn.click();
-        return { success: true, method: 'video-control-button' };
+    // Đánh thức controls nếu đang bị ẩn tự động
+    const playerContainer = document.querySelector('.video-player--container, [data-purpose="video-controls"], [class*="video-viewer"]');
+    if (playerContainer) {
+      playerContainer.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+    }
+
+    for (const selector of nextSelectors) {
+      const elements = Array.from(document.querySelectorAll(selector));
+      for (const btn of elements) {
+        if (btn && typeof btn.click === 'function' && !btn.disabled) {
+          console.log('[Udemy Downloader] Kích hoạt Next qua nút điều khiển:', selector);
+          btn.click();
+          return { success: true, method: 'video-control-button', selector };
+        }
       }
     }
 
-    // 2. Thử tìm bài giảng tiếp theo trong danh sách giáo trình (Curriculum Drawer)
-    const currentItem = document.querySelector('[class*="curriculum-item-link--is-current"]') ||
-                        document.querySelector('[aria-current="true"]');
-    if (currentItem) {
-      const allItems = Array.from(document.querySelectorAll('a[href*="/lecture/"], [class*="curriculum-item-link"]'));
-      const currentIndex = allItems.indexOf(currentItem);
-      if (currentIndex !== -1 && currentIndex + 1 < allItems.length) {
-        const nextItem = allItems[currentIndex + 1];
-        console.log('[Udemy Downloader] Kích hoạt Next qua danh sách giáo trình');
-        nextItem.click();
-        return { success: true, method: 'curriculum-list' };
+    // 2. Thử kích hoạt phím tắt chính thức của Udemy Player: Shift + N
+    try {
+      const keyOpts = { key: 'N', code: 'KeyN', keyCode: 78, which: 78, shiftKey: true, bubbles: true, cancelable: true };
+      const targetEl = document.querySelector('video') || document.activeElement || document.body;
+      targetEl.dispatchEvent(new KeyboardEvent('keydown', keyOpts));
+      targetEl.dispatchEvent(new KeyboardEvent('keyup', keyOpts));
+      console.log('[Udemy Downloader] Kích hoạt phím tắt Shift+N');
+    } catch (e) {}
+
+    // 3. Sử dụng danh sách giáo trình từ API (curriculumOrderList)
+    if (curriculumOrderList.length > 0 && currentLecId) {
+      const currentIdx = curriculumOrderList.findIndex(item => String(item.id) === currentLecId);
+      if (currentIdx !== -1) {
+        if (currentIdx + 1 < curriculumOrderList.length) {
+          const nextItem = curriculumOrderList[currentIdx + 1];
+          const nextType = nextItem.type === 'quiz' ? 'quiz' : 'lecture';
+          const nextUrl = `/course/${courseSlug}/learn/${nextType}/${nextItem.id}`;
+
+          // Tìm xem thẻ link bài tiếp theo có trong DOM không
+          const nextDomLink = document.querySelector(`a[href*="/${nextItem.id}"], a[href*="/lecture/${nextItem.id}"], a[href*="/quiz/${nextItem.id}"]`);
+          if (nextDomLink) {
+            // Nếu nằm trong accordion đang đóng, mở ra
+            const parentPanel = nextDomLink.closest('[class*="accordion-panel"], [data-purpose*="section"]');
+            if (parentPanel) {
+              const toggleBtn = parentPanel.querySelector('button[aria-expanded="false"], [data-purpose*="panel-header"]');
+              if (toggleBtn) toggleBtn.click();
+            }
+            console.log('[Udemy Downloader] Click link bài tiếp theo từ danh sách curriculumOrderList:', nextItem);
+            nextDomLink.click();
+            return { success: true, method: 'curriculum-order-link', nextUrl, nextId: nextItem.id };
+          }
+
+          // Nếu không có trong DOM (ví dụ danh sách thu gọn), trả về nextUrl để chuyển hướng
+          console.log('[Udemy Downloader] Trả về nextUrl để chuyển hướng trực tiếp:', nextUrl);
+          return { success: true, method: 'navigate-url', nextUrl, nextId: nextItem.id };
+        } else {
+          return { success: false, error: 'Đã tới bài cuối cùng của khóa học!' };
+        }
       }
     }
 
-    // 3. Quét tất cả button hoặc link có chữ Next hiển thị
-    const allCandidates = Array.from(document.querySelectorAll('a, button'));
-    for (const el of allCandidates) {
+    // 4. Tìm kiếm bài tiếp theo qua các thẻ link curriculum trong DOM
+    const allItemLinks = Array.from(document.querySelectorAll('a[href*="/learn/lecture/"], a[href*="/learn/quiz/"], a[href*="/lecture/"], a[href*="/quiz/"]'));
+    if (allItemLinks.length > 0) {
+      let curIdx = -1;
+      if (currentLecId) {
+        curIdx = allItemLinks.findIndex(a => a.href.includes(`/${currentLecId}`));
+      }
+      if (curIdx === -1) {
+        const curActive = document.querySelector('[class*="curriculum-item-link--is-current"]') || document.querySelector('[aria-current="true"]');
+        if (curActive) {
+          curIdx = allItemLinks.indexOf(curActive) !== -1 ? allItemLinks.indexOf(curActive) : allItemLinks.indexOf(curActive.closest('a'));
+        }
+      }
+
+      if (curIdx !== -1 && curIdx + 1 < allItemLinks.length) {
+        const nextLink = allItemLinks[curIdx + 1];
+        console.log('[Udemy Downloader] Kích hoạt Next qua thẻ link kế tiếp trong DOM');
+        nextLink.click();
+        return { success: true, method: 'dom-link-sequential', nextUrl: nextLink.getAttribute('href') };
+      }
+    }
+
+    // 5. Fallback quét tất cả nút hoặc link chứa chữ Next / Tiếp
+    const allButtons = Array.from(document.querySelectorAll('button, a'));
+    for (const el of allButtons) {
       const txt = (el.textContent || '').trim().toLowerCase();
       const aria = (el.getAttribute('aria-label') || '').toLowerCase();
       const purpose = (el.getAttribute('data-purpose') || '').toLowerCase();
       if (
-        (purpose.includes('next') || aria.includes('next') || txt === 'next lecture' || txt === 'bài tiếp theo') &&
-        !el.disabled &&
-        el.offsetParent !== null
+        (purpose.includes('next') || aria.includes('next') || aria.includes('tiếp') || txt === 'next' || txt === 'tiếp theo' || txt === 'bài tiếp theo' || txt === 'next lecture') &&
+        !el.disabled
       ) {
         console.log('[Udemy Downloader] Kích hoạt Next qua fallback element:', el);
         el.click();
@@ -1147,6 +1270,7 @@
 
     return { success: false, error: 'Không tìm thấy nút chuyển bài tiếp theo hoặc đây là bài cuối cùng của khóa học.' };
   }
+
 
   setTimeout(fetchLectureApiDirectly, 1500);
 

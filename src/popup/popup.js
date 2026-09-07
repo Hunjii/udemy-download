@@ -30,6 +30,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   initEngine2Controls();
   setupEventListeners();
   batchManager.init();
+
+  // Lắng nghe cập nhật bài giảng thời gian thực từ Content Script / Background
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message.type === 'LECTURE_DATA_UPDATED' || message.type === 'UPDATE_LECTURE_DATA') {
+      if (message.data) {
+        currentLecture = message.data;
+        renderLecture(message.data);
+      }
+    }
+  });
 });
 
 // ============================================================================
@@ -486,7 +496,7 @@ function renderLecture(data) {
   lectureContent.classList.remove('hidden');
 
   const cleanedMeta = cleanLectureTitle(data.lectureTitle);
-  const finalIndex = cleanedMeta.index || data.lectureIndex || 1;
+  const finalIndex = data.lectureIndex || cleanedMeta.index || 1;
   const finalTitle = cleanedMeta.title;
 
   document.getElementById('course-title').textContent = data.courseTitle || 'Udemy Course';
@@ -672,7 +682,7 @@ async function openDownloaderForStream(stream) {
   }
 
   const cleanedMeta = cleanLectureTitle(currentLecture.lectureTitle);
-  const finalIndex = cleanedMeta.index || currentLecture.lectureIndex || 1;
+  const finalIndex = currentLecture.lectureIndex || cleanedMeta.index || 1;
   const finalTitle = cleanedMeta.title;
 
   chrome.runtime.sendMessage({
@@ -806,7 +816,7 @@ async function downloadSubtitleAsSrt(subUrl) {
     }
 
     const cleanedMeta = cleanLectureTitle(currentLecture.lectureTitle);
-    const finalIndex = cleanedMeta.index || currentLecture.lectureIndex || 1;
+    const finalIndex = currentLecture.lectureIndex || cleanedMeta.index || 1;
     const finalTitle = cleanedMeta.title;
     // Tên file phụ đề khớp 100% tên file video
     const fileName = `${padIndex(finalIndex)} - ${sanitizeName(finalTitle, 'Lesson')}.srt`;
@@ -873,7 +883,7 @@ function showStatusBanner(text, type = 'success') {
 // ============================================================================
 async function saveVideoBlobDirectly(blob, lectureData, streamInfo, settings, fsHandle) {
   const cleanedMeta = cleanLectureTitle(lectureData.lectureTitle);
-  const finalIndex = cleanedMeta.index || lectureData.lectureIndex || 1;
+  const finalIndex = lectureData.lectureIndex || cleanedMeta.index || 1;
   const cleanTitle = sanitizeName(cleanedMeta.title, 'Lesson');
   const cleanCourse = sanitizeName(lectureData.courseTitle, 'Udemy Course');
   const cleanSection = sanitizeName(lectureData.sectionTitle, '');
@@ -956,7 +966,7 @@ async function downloadSubtitleAsSrtForBatch(subUrl, lectureData, settings, fsHa
   if (!srtText || srtText.trim().length === 0) return false;
 
   const cleanedMeta = cleanLectureTitle(lectureData.lectureTitle);
-  const finalIndex = cleanedMeta.index || lectureData.lectureIndex || 1;
+  const finalIndex = lectureData.lectureIndex || cleanedMeta.index || 1;
   const cleanTitle = sanitizeName(cleanedMeta.title, 'Lesson');
   const cleanCourse = sanitizeName(lectureData.courseTitle, 'Udemy Course');
   const cleanSection = sanitizeName(lectureData.sectionTitle, '');
@@ -1209,11 +1219,23 @@ const batchManager = {
 
       let lecture = currentLecture;
       let waitAttempts = 0;
-      while ((!lecture || !lecture.lectureId || (!lecture.streams?.length && !lecture.isQuiz && !lecture.isArticle && !lecture.isDrmProtected)) && waitAttempts < 15) {
-        await new Promise(r => setTimeout(r, 800));
-        waitAttempts++;
-        lecture = currentLecture;
+
+      // Đợi nhận diện bài giảng mới (phải có lectureId và CHƯA nằm trong processedLectureIds)
+      while (
+        (!lecture ||
+         !lecture.lectureId ||
+         this.processedLectureIds.has(String(lecture.lectureId)) ||
+         (!lecture.streams?.length && !lecture.isQuiz && !lecture.isArticle && !lecture.isDrmProtected)) &&
+        waitAttempts < 25
+      ) {
         if (!this.isRunning) return;
+        waitAttempts++;
+        if (videoStatusEl) {
+          videoStatusEl.textContent = `Đang đợi chuyển sang bài mới (${waitAttempts}s)...`;
+        }
+        await new Promise(r => setTimeout(r, 800));
+        await detectCurrentLecture();
+        lecture = currentLecture;
       }
 
       // Đợi thêm chút nếu chưa giải mã xong 1080p
@@ -1225,28 +1247,15 @@ const batchManager = {
         if (!this.isRunning) return;
       }
 
-      if (!lecture) {
-        if (videoStatusEl) videoStatusEl.textContent = 'Đang quét lại trang bài giảng...';
-        await detectCurrentLecture();
-        await new Promise(r => setTimeout(r, 1200));
-        lecture = currentLecture;
-      }
-
-      if (!lecture) {
-        alert('Không thể nhận diện bài giảng trên trang Udemy. Chuỗi tự động đã dừng.');
+      if (!lecture || this.processedLectureIds.has(String(lecture.lectureId))) {
+        alert('Không thể nhận diện bài giảng mới trên trang Udemy. Chuỗi tự động đã dừng.');
         this.stop(false);
         return;
       }
 
-      // Nếu bài này đã được xử lý (trang chưa kịp chuyển URL), đợi thêm 1 nhịp
-      if (this.processedLectureIds.has(String(lecture.lectureId))) {
-        if (videoStatusEl) videoStatusEl.textContent = 'Đang đợi chuyển sang bài mới...';
-        await new Promise(r => setTimeout(r, 1000));
-        continue;
-      }
-
       const cleaned = cleanLectureTitle(lecture.lectureTitle);
-      const displayTitle = `${padIndex(cleaned.index || lecture.lectureIndex || 1)} - ${cleaned.title}`;
+      const displayIndex = lecture.lectureIndex || cleaned.index || 1;
+      const displayTitle = `${padIndex(displayIndex)} - ${cleaned.title}`;
       if (currentLectureNameEl) currentLectureNameEl.textContent = displayTitle;
 
       // 2. Tự động bỏ qua Quiz, Bài đọc (Article) hoặc DRM Widevine
@@ -1376,14 +1385,22 @@ const batchManager = {
       return;
     }
 
+    // Reset currentLecture để vòng lặp runLoop chắc chắn chờ đợi bài giảng mới
+    currentLecture = null;
+
     const res = await new Promise(resolve => {
       chrome.tabs.sendMessage(tab.id, { type: 'GO_TO_NEXT_LECTURE' }, (r) => {
         resolve(r || { success: false });
       });
     });
 
-    if (!res?.success) {
-      alert('Không tìm thấy bài giảng tiếp theo hoặc đã tới bài cuối cùng của khóa học!');
+    if (res?.nextUrl && tab?.id) {
+      const fullUrl = res.nextUrl.startsWith('http') ? res.nextUrl : `https://www.udemy.com${res.nextUrl}`;
+      try {
+        await chrome.tabs.update(tab.id, { url: fullUrl });
+      } catch (e) {}
+    } else if (!res?.success) {
+      alert(res?.error || 'Không tìm thấy bài giảng tiếp theo hoặc đã tới bài cuối cùng của khóa học!');
       this.stop(true);
       return;
     }

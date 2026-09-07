@@ -196,5 +196,55 @@ assert.strictEqual(findEnglishCaption(mockLectures[5].captions), null, 'Bài 4 k
 
 console.log('-> Lọc Quiz/Article/DRM & Kiểm soát Subtitle trong Auto-Batch: ĐẠT');
 
+// 7. Kiểm tra Bảo toàn Số thứ tự Bài giảng (Không bị ép về 001) & Chuỗi Next
+console.log('7. Kiểm tra Bảo toàn Số thứ tự Bài giảng (Không bị ép về 001)...');
+// Giả lập bài giảng không có số trong tiêu đề (chỉ có chữ), số thứ tự lấy từ object_index / curriculum
+const lectureNoNumberInTitle = {
+  title: 'Cài đặt môi trường và công cụ lập trình',
+  object_index: 18,
+  lectureIndex: 18
+};
+
+const cleanedNoNum = cleanLectureTitle(lectureNoNumberInTitle.title);
+assert.strictEqual(cleanedNoNum.index, null, 'Tiêu đề không có số thì cleanedMeta.index phải là null');
+
+// Hệ thống phải ưu tiên lectureIndex/object_index thay vì rơi về 1 (001)
+const resolvedIndex = lectureNoNumberInTitle.lectureIndex || cleanedNoNum.index || 1;
+assert.strictEqual(resolvedIndex, 18, 'Số thứ tự bài giảng phải được bảo toàn là 18');
+assert.strictEqual(padIndex(resolvedIndex), '018', 'padIndex phải định dạng 018 thay vì 001');
+
+const pathVideo = buildDownloadPath({
+  baseFolder: 'Udemy Courses',
+  courseTitle: 'NodeJS Masterclass',
+  sectionTitle: 'Section 02 - Setup',
+  lectureIndex: resolvedIndex,
+  lectureTitle: cleanedNoNum.title,
+  extension: 'mp4'
+});
+
+assert.strictEqual(
+  pathVideo,
+  'Udemy Courses/NodeJS Masterclass/Section 02 - Setup/018 - Cài đặt môi trường và công cụ lập trình.mp4',
+  'File video phải giữ đúng số thứ tự 018, không được bắt đầu từ 001'
+);
+
+const pathSub = buildDownloadPath({
+  baseFolder: 'Udemy Courses',
+  courseTitle: 'NodeJS Masterclass',
+  sectionTitle: 'Section 02 - Setup',
+  lectureIndex: resolvedIndex,
+  lectureTitle: cleanedNoNum.title,
+  extension: 'srt'
+});
+
+assert.strictEqual(
+  pathSub,
+  'Udemy Courses/NodeJS Masterclass/Section 02 - Setup/018 - Cài đặt môi trường và công cụ lập trình.srt',
+  'File phụ đề phải giữ đúng số thứ tự 018, khớp với video'
+);
+
+console.log('-> Bảo toàn Số thứ tự Bài giảng (018 thay vì 001): ĐẠT');
+
 console.log('=== TẤT CẢ TEST ĐÃ VƯỢT QUA XUẤT SẮC ===');
+
 
