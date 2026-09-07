@@ -19,10 +19,11 @@ let currentSettings = null;
 let activeFsHandle = null;
 let tabRecorderInstance = null;
 let targetUdemyTab = null;
+let isSidePanel = false;
 
 document.addEventListener('DOMContentLoaded', async () => {
   initTabs();
-  initWindowControls();
+  await initWindowControls();
   await loadAndBindSettings();
   await detectCurrentLecture();
   initEngine2Controls();
@@ -70,6 +71,8 @@ async function loadAndBindSettings() {
   const togglePromptSave = document.getElementById('toggle-prompt-save');
   const modeBrowserRadio = document.getElementById('mode-browser');
   const modeFsRadio = document.getElementById('mode-fs');
+  const modeDisplaySidebarRadio = document.getElementById('mode-display-sidebar');
+  const modeDisplayWindowRadio = document.getElementById('mode-display-window');
 
   inputCustomFolder.value = currentSettings.customFolder || 'Udemy Courses';
   togglePromptSave.checked = Boolean(currentSettings.promptSaveAs);
@@ -78,6 +81,12 @@ async function loadAndBindSettings() {
     modeFsRadio.checked = true;
   } else {
     modeBrowserRadio.checked = true;
+  }
+
+  if (currentSettings.displayMode === 'window') {
+    if (modeDisplayWindowRadio) modeDisplayWindowRadio.checked = true;
+  } else {
+    if (modeDisplaySidebarRadio) modeDisplaySidebarRadio.checked = true;
   }
 
   activeFsHandle = await getDirectoryHandle();
@@ -145,7 +154,8 @@ async function loadAndBindSettings() {
     const updated = {
       customFolder: inputCustomFolder.value.trim() || 'Udemy Courses',
       promptSaveAs: togglePromptSave.checked,
-      downloadMode: modeFsRadio.checked ? 'filesystem' : 'browser'
+      downloadMode: modeFsRadio.checked ? 'filesystem' : 'browser',
+      displayMode: (modeDisplayWindowRadio && modeDisplayWindowRadio.checked) ? 'window' : 'sidebar'
     };
 
     if (updated.downloadMode === 'filesystem' && !activeFsHandle) {
@@ -156,6 +166,12 @@ async function loadAndBindSettings() {
 
     await saveSettings(updated);
     currentSettings = updated;
+
+    // Cập nhật cấu hình click biểu tượng trên background service worker
+    chrome.runtime.sendMessage({
+      type: 'SET_DISPLAY_MODE',
+      displayMode: updated.displayMode
+    });
 
     settingsSuccessMsg.classList.remove('hidden');
     setTimeout(() => {
@@ -178,22 +194,77 @@ function updateFsFolderDisplay() {
 }
 
 // ============================================================================
-// 3. Nhận diện bài giảng đang xem & Quản lý cửa sổ
+// 3. Nhận diện bài giảng đang xem & Quản lý cửa sổ / Sidebar
 // ============================================================================
-function initWindowControls() {
+async function initWindowControls() {
+  try {
+    const currentWin = await chrome.windows.getCurrent();
+    // Popup window có win.type === 'popup', Sidebar nằm trong cửa sổ chính win.type === 'normal'
+    isSidePanel = (currentWin.type !== 'popup');
+  } catch (e) {
+    isSidePanel = false;
+  }
+
   const btnClose = document.getElementById('btn-close-window');
-  if (btnClose) {
-    btnClose.addEventListener('click', () => {
-      window.close();
-    });
+  const btnToggleSidebar = document.getElementById('btn-toggle-sidebar');
+  const iconToSidebar = document.getElementById('icon-to-sidebar');
+  const iconToWindow = document.getElementById('icon-to-window');
+
+  if (isSidePanel) {
+    document.body.classList.add('mode-sidebar');
+    if (btnClose) btnClose.classList.add('hidden'); // Sidebar có nút đóng native của Chrome
+    if (iconToSidebar) iconToSidebar.classList.add('hidden');
+    if (iconToWindow) iconToWindow.classList.remove('hidden');
+    if (btnToggleSidebar) {
+      btnToggleSidebar.title = 'Mở thành cửa sổ nổi độc lập';
+      btnToggleSidebar.onclick = () => {
+        chrome.runtime.sendMessage({ type: 'OPEN_POPUP_WINDOW' });
+      };
+    }
+  } else {
+    document.body.classList.remove('mode-sidebar');
+    if (btnClose) {
+      btnClose.classList.remove('hidden');
+      btnClose.onclick = () => window.close();
+    }
+    if (iconToSidebar) iconToSidebar.classList.remove('hidden');
+    if (iconToWindow) iconToWindow.classList.add('hidden');
+    if (btnToggleSidebar) {
+      btnToggleSidebar.title = 'Ghim vào thanh bên (Sidebar) cố định bên phải';
+      btnToggleSidebar.onclick = async () => {
+        try {
+          const lastWin = await chrome.windows.getLastFocused();
+          if (chrome.sidePanel && chrome.sidePanel.open && lastWin && lastWin.id) {
+            await chrome.sidePanel.open({ windowId: lastWin.id });
+            window.close();
+          } else {
+            chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL', windowId: lastWin ? lastWin.id : undefined }, () => {
+              window.close();
+            });
+          }
+        } catch (e) {
+          chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' }, () => {
+            window.close();
+          });
+        }
+      };
+    }
   }
 }
 
 function setupEventListeners() {
-  // Tự động làm mới khi người dùng click trở lại cửa sổ tiện ích
+  // Tự động làm mới khi người dùng click trở lại cửa sổ tiện ích hoặc thanh bên
   window.addEventListener('focus', () => {
     detectCurrentLecture();
   });
+
+  // Khi đang ở Sidebar mà người dùng chuyển tab trên trình duyệt
+  if (chrome.tabs && chrome.tabs.onActivated) {
+    chrome.tabs.onActivated.addListener(async () => {
+      targetUdemyTab = null;
+      await detectCurrentLecture();
+    });
+  }
 
   // Lắng nghe thông điệp từ background (đổi tab hoặc bài giảng mới được load)
   chrome.runtime.onMessage.addListener((message) => {
@@ -229,15 +300,13 @@ async function getActiveUdemyTab() {
     } catch (e) {}
   }
 
-  // 2. Tab đã lưu trước đó trong biến
-  if (targetUdemyTab && targetUdemyTab.id) {
-    try {
-      const tab = await chrome.tabs.get(targetUdemyTab.id);
-      if (tab && tab.url && tab.url.includes('udemy.com')) {
-        return tab;
-      }
-    } catch (e) {}
-  }
+  // 2. Tab active ở cửa sổ hiện tại (Cực kỳ chính xác khi chạy trong Side Panel!)
+  try {
+    const [currTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (currTab && currTab.url && currTab.url.includes('udemy.com')) {
+      return currTab;
+    }
+  } catch (e) {}
 
   // 3. Tab đang hoạt động ở cửa sổ trình duyệt gần nhất (lastFocusedWindow)
   try {
@@ -247,7 +316,17 @@ async function getActiveUdemyTab() {
     }
   } catch (e) {}
 
-  // 4. Bất kỳ tab active nào trên udemy.com qua các cửa sổ
+  // 4. Tab đã lưu trước đó trong biến
+  if (targetUdemyTab && targetUdemyTab.id) {
+    try {
+      const tab = await chrome.tabs.get(targetUdemyTab.id);
+      if (tab && tab.url && tab.url.includes('udemy.com')) {
+        return tab;
+      }
+    } catch (e) {}
+  }
+
+  // 5. Bất kỳ tab active nào trên udemy.com qua các cửa sổ
   try {
     const activeUdemyTabs = await chrome.tabs.query({ active: true, url: '*://*.udemy.com/*' });
     if (activeUdemyTabs && activeUdemyTabs.length > 0) {
@@ -255,19 +334,11 @@ async function getActiveUdemyTab() {
     }
   } catch (e) {}
 
-  // 5. Bất kỳ tab nào trên udemy.com
+  // 6. Bất kỳ tab nào trên udemy.com
   try {
     const allUdemyTabs = await chrome.tabs.query({ url: '*://*.udemy.com/*' });
     if (allUdemyTabs && allUdemyTabs.length > 0) {
       return allUdemyTabs[0];
-    }
-  } catch (e) {}
-
-  // 6. Fallback cửa sổ hiện tại (nếu chạy dưới dạng extension popup thường)
-  try {
-    const [currTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (currTab && currTab.url && currTab.url.includes('udemy.com')) {
-      return currTab;
     }
   } catch (e) {}
 

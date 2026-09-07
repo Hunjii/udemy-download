@@ -7,7 +7,8 @@ export const DEFAULT_SETTINGS = {
   customFolder: 'Udemy Courses', // Thư mục con trong thư mục Downloads
   promptSaveAs: false,           // Bật/tắt hộp thoại hỏi vị trí lưu mỗi lần tải
   downloadMode: 'browser',       // 'browser' (thông qua Downloads API) hoặc 'filesystem' (ghi thẳng vào thư mục ổ đĩa đã chọn)
-  autoHighestQuality: true       // Tự động chọn chất lượng cao nhất
+  autoHighestQuality: true,      // Tự động chọn chất lượng cao nhất
+  displayMode: 'sidebar'         // 'sidebar' (thanh bên Chrome bên phải) hoặc 'window' (cửa sổ nổi độc lập)
 };
 
 /**

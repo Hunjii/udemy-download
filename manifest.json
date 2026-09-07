@@ -15,7 +15,8 @@
     "tabs",
     "scripting",
     "tabCapture",
-    "webRequest"
+    "webRequest",
+    "sidePanel"
   ],
   "host_permissions": [
     "*://*.udemy.com/*",
@@ -59,6 +60,9 @@
       ]
     }
   ],
+  "side_panel": {
+    "default_path": "src/popup/popup.html"
+  },
   "action": {
     "default_icon": {
       "16": "icons/icon16.png",

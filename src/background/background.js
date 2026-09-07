@@ -107,6 +107,46 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .catch((err) => sendResponse({ success: false, error: err.message }));
       return true;
 
+    case 'OPEN_SIDE_PANEL':
+      if (chrome.sidePanel && chrome.sidePanel.open) {
+        const targetWindowId = message.windowId;
+        if (targetWindowId) {
+          chrome.sidePanel.open({ windowId: targetWindowId })
+            .then(() => sendResponse({ success: true }))
+            .catch((err) => sendResponse({ success: false, error: err.message }));
+        } else {
+          chrome.windows.getLastFocused().then((win) => {
+            if (win?.id) {
+              chrome.sidePanel.open({ windowId: win.id })
+                .then(() => sendResponse({ success: true }))
+                .catch((err) => sendResponse({ success: false, error: err.message }));
+            } else {
+              sendResponse({ success: false, error: 'Không tìm thấy cửa sổ' });
+            }
+          });
+        }
+        return true;
+      }
+      sendResponse({ success: false, error: 'SidePanel API không khả dụng' });
+      break;
+
+    case 'OPEN_POPUP_WINDOW':
+      openPopupWindow(null)
+        .then(() => sendResponse({ success: true }))
+        .catch((err) => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case 'SET_DISPLAY_MODE':
+      if (chrome.sidePanel && chrome.sidePanel.setPanelBehavior) {
+        chrome.sidePanel.setPanelBehavior({
+          openPanelOnActionClick: message.displayMode !== 'window'
+        }).then(() => sendResponse({ success: true }))
+          .catch((err) => sendResponse({ success: false, error: err.message }));
+        return true;
+      }
+      sendResponse({ success: true });
+      break;
+
     default:
       break;
   }
@@ -203,11 +243,11 @@ async function checkDownloadStatus(downloadId) {
 }
 
 // ----------------------------------------------------------------------------
-// 5. Mở cửa sổ Popup độc lập (Không tự đóng khi click ra ngoài trang web)
+// 5. Quản lý Chế độ hiển thị: Sidebar cố định & Cửa sổ Popup nổi
 // ----------------------------------------------------------------------------
 let popupWindowId = null;
 
-chrome.action.onClicked.addListener(async (tab) => {
+export async function openPopupWindow(tab = null) {
   // 1. Nếu cửa sổ popup đang mở, đưa lên trên cùng (focus)
   if (popupWindowId !== null) {
     try {
@@ -241,8 +281,15 @@ chrome.action.onClicked.addListener(async (tab) => {
     }
   } catch (e) {}
 
-  const targetTabId = tab?.id || '';
-  const url = chrome.runtime.getURL(`src/popup/popup.html?tabId=${targetTabId}`);
+  let targetTabId = tab?.id;
+  if (!targetTabId) {
+    try {
+      const [actTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (actTab?.id) targetTabId = actTab.id;
+    } catch (e) {}
+  }
+
+  const url = chrome.runtime.getURL(`src/popup/popup.html${targetTabId ? `?tabId=${targetTabId}` : ''}`);
 
   try {
     const newWin = await chrome.windows.create({
@@ -257,11 +304,39 @@ chrome.action.onClicked.addListener(async (tab) => {
   } catch (err) {
     console.error('Lỗi khi mở cửa sổ popup:', err);
   }
+}
+
+// Xử lý khi người dùng bấm biểu tượng tiện ích trên Chrome Toolbar
+chrome.action.onClicked.addListener((tab) => {
+  openPopupWindow(tab);
 });
 
 chrome.windows.onRemoved.addListener((windowId) => {
   if (windowId === popupWindowId) {
     popupWindowId = null;
   }
+});
+
+// Cấu hình hành vi SidePanel theo cài đặt của người dùng
+async function applySidePanelBehavior() {
+  if (chrome.sidePanel && chrome.sidePanel.setPanelBehavior) {
+    try {
+      const settings = await getSettings();
+      const openInSidebar = (settings.displayMode !== 'window');
+      await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: openInSidebar });
+    } catch (e) {
+      console.warn('Lỗi cấu hình sidePanel:', e);
+    }
+  }
+}
+
+applySidePanelBehavior();
+
+chrome.runtime.onInstalled.addListener(() => {
+  applySidePanelBehavior();
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  applySidePanelBehavior();
 });
 
