@@ -1394,6 +1394,12 @@ const batchManager = {
       });
     });
 
+    if (res?.isLast) {
+      showStatusBanner('🎉 Đã tải tới bài cuối cùng của khóa học!', 'success');
+      this.stop(true);
+      return;
+    }
+
     if (res?.nextUrl && tab?.id) {
       const fullUrl = res.nextUrl.startsWith('http') ? res.nextUrl : `https://www.udemy.com${res.nextUrl}`;
       try {

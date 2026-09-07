@@ -245,6 +245,50 @@ assert.strictEqual(
 
 console.log('-> Bảo toàn Số thứ tự Bài giảng (018 thay vì 001): ĐẠT');
 
+// 8. Kiểm tra Logic Xác định Mục tiêu Bài tiếp theo (Next Lecture Target Resolution)
+console.log('8. Kiểm tra Xác định Mục tiêu Bài tiếp theo...');
+const sampleCurriculum = [
+  { id: '1001', type: 'lecture', title: '01. Giới thiệu', index: 1 },
+  { id: '1002', type: 'lecture', title: '02. Cài đặt môi trường', index: 2 },
+  { id: '1003', type: 'quiz', title: 'Bài trắc nghiệm 1', index: 3 },
+  { id: '1004', type: 'lecture', title: '03. Biến và hằng', index: 4 }
+];
+
+function resolveNextTarget(currentId, courseSlug, list) {
+  const idx = list.findIndex(item => item.id === currentId);
+  if (idx !== -1) {
+    if (idx + 1 < list.length) {
+      const nextItem = list[idx + 1];
+      const nextType = nextItem.type === 'quiz' ? 'quiz' : 'lecture';
+      return {
+        id: nextItem.id,
+        type: nextType,
+        url: `/course/${courseSlug}/learn/${nextType}/${nextItem.id}`,
+        isLast: false
+      };
+    } else {
+      return { isLast: true };
+    }
+  }
+  return null;
+}
+
+const targetFrom1 = resolveNextTarget('1001', 'react-complete-guide', sampleCurriculum);
+assert.strictEqual(targetFrom1.id, '1002');
+assert.strictEqual(targetFrom1.url, '/course/react-complete-guide/learn/lecture/1002');
+assert.strictEqual(targetFrom1.isLast, false);
+
+const targetFrom2 = resolveNextTarget('1002', 'react-complete-guide', sampleCurriculum);
+assert.strictEqual(targetFrom2.id, '1003');
+assert.strictEqual(targetFrom2.type, 'quiz');
+assert.strictEqual(targetFrom2.url, '/course/react-complete-guide/learn/quiz/1003');
+
+const targetFromLast = resolveNextTarget('1004', 'react-complete-guide', sampleCurriculum);
+assert.strictEqual(targetFromLast.isLast, true);
+
+console.log('-> Xác định Mục tiêu Bài tiếp theo & Nhận biết bài cuối: ĐẠT');
+
 console.log('=== TẤT CẢ TEST ĐÃ VƯỢT QUA XUẤT SẮC ===');
+
 
 

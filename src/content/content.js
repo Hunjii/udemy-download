@@ -1136,27 +1136,204 @@
     }
 
     if (message.type === 'GO_TO_NEXT_LECTURE') {
-      const res = triggerNextLecture();
-      sendResponse(res);
+      triggerNextLecture().then(res => {
+        sendResponse(res);
+      }).catch(err => {
+        sendResponse({ success: false, error: err.message });
+      });
       return true;
     }
   });
 
   // --------------------------------------------------------------------------
-  // 14. Kích hoạt chuyển sang bài giảng tiếp theo (Auto Next)
+  // 14. Tiện ích Mở rộng các phần giáo trình và Tìm mục tiêu bài tiếp theo
   // --------------------------------------------------------------------------
-  function triggerNextLecture() {
+  function expandAllCurriculumSections() {
+    const collapsedHeaders = document.querySelectorAll(
+      'button[aria-expanded="false"][data-purpose*="section"], ' +
+      'button[aria-expanded="false"][class*="section"], ' +
+      'button[aria-expanded="false"][class*="accordion"], ' +
+      '[data-purpose*="curriculum-section"] button[aria-expanded="false"], ' +
+      '.ud-accordion-panel-toggler[aria-expanded="false"]'
+    );
+    collapsedHeaders.forEach(btn => {
+      try { btn.click(); } catch (e) {}
+    });
+  }
+
+  async function getNextLectureTarget() {
     const pageInfo = getCourseAndLectureInfoFromPage();
-    const currentLecId = String(pageInfo.lectureId || currentLectureInfo?.lectureId || '');
+    const currentId = String(pageInfo.lectureId || currentLectureInfo?.lectureId || '');
     const courseSlug = pageInfo.courseSlug || '';
 
-    // 1. Thử click nút Next trên thanh điều khiển video / giao diện bài học của Udemy
+    // Chiến lược 1: Sử dụng curriculumOrderList đã có sẵn trong bộ nhớ
+    if (curriculumOrderList.length > 0 && currentId) {
+      const idx = curriculumOrderList.findIndex(item => String(item.id) === currentId);
+      if (idx !== -1) {
+        if (idx + 1 < curriculumOrderList.length) {
+          const nextItem = curriculumOrderList[idx + 1];
+          const nextType = nextItem.type === 'quiz' ? 'quiz' : 'lecture';
+          return {
+            id: String(nextItem.id),
+            type: nextType,
+            title: nextItem.title,
+            index: nextItem.index,
+            url: `/course/${courseSlug}/learn/${nextType}/${nextItem.id}`
+          };
+        } else {
+          return { isLast: true };
+        }
+      }
+    }
+
+    // Chiến lược 2: Trích xuất trực tiếp từ __NEXT_DATA__ trong HTML
+    const nextDataEl = document.getElementById('__NEXT_DATA__');
+    if (nextDataEl && nextDataEl.textContent) {
+      try {
+        const nextJson = JSON.parse(nextDataEl.textContent);
+        const curriculum = nextJson.props?.pageProps?.curriculum ||
+                           nextJson.props?.pageProps?.course?.curriculum;
+        if (Array.isArray(curriculum) && curriculum.length > 0) {
+          storeCurriculumResults(curriculum);
+          if (curriculumOrderList.length > 0 && currentId) {
+            const idx = curriculumOrderList.findIndex(item => String(item.id) === currentId);
+            if (idx !== -1) {
+              if (idx + 1 < curriculumOrderList.length) {
+                const nextItem = curriculumOrderList[idx + 1];
+                const nextType = nextItem.type === 'quiz' ? 'quiz' : 'lecture';
+                return {
+                  id: String(nextItem.id),
+                  type: nextType,
+                  title: nextItem.title,
+                  index: nextItem.index,
+                  url: `/course/${courseSlug}/learn/${nextType}/${nextItem.id}`
+                };
+              } else {
+                return { isLast: true };
+              }
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    // Chiến lược 3: Quét các liên kết bài học trong Curriculum Drawer (Mở các section bị thu gọn)
+    expandAllCurriculumSections();
+
+    const domLinks = Array.from(document.querySelectorAll('a[href*="/lecture/"], a[href*="/quiz/"]'));
+    const linkItems = [];
+    const seenHrefs = new Set();
+    domLinks.forEach(a => {
+      const href = a.getAttribute('href') || '';
+      const m = href.match(/\/(lecture|quiz)\/(\d+)/);
+      if (m && !seenHrefs.has(m[0])) {
+        seenHrefs.add(m[0]);
+        linkItems.push({ el: a, href, type: m[1], id: m[2] });
+      }
+    });
+
+    if (linkItems.length > 0 && currentId) {
+      const curIdx = linkItems.findIndex(item => item.id === currentId);
+      if (curIdx !== -1) {
+        if (curIdx + 1 < linkItems.length) {
+          const nextLink = linkItems[curIdx + 1];
+          return {
+            id: nextLink.id,
+            type: nextLink.type,
+            url: nextLink.href,
+            el: nextLink.el
+          };
+        } else {
+          return { isLast: true };
+        }
+      }
+    }
+
+    // Chiến lược 4: Tìm courseId từ HTML nguồn và fetch curriculum qua các endpoint API
+    let courseId = pageInfo.courseId || cachedCourseId;
+    if (!courseId) {
+      const m = document.documentElement.innerHTML.match(/"courseId":\s*(\d+)|"course_id":\s*(\d+)|data-course-id="(\d+)"/);
+      if (m) courseId = m[1] || m[2] || m[3];
+    }
+
+    const endpoints = [];
+    if (courseId) {
+      endpoints.push(`/api-2.0/courses/${courseId}/subscriber-curriculum-items/?page_size=1400`);
+      endpoints.push(`/api-2.0/courses/${courseId}/curriculum-items/?page_size=1400`);
+    }
+    if (courseSlug) {
+      endpoints.push(`/api-2.0/courses/${courseSlug}/subscriber-curriculum-items/?page_size=1400`);
+      endpoints.push(`/api-2.0/courses/${courseSlug}/curriculum-items/?page_size=1400`);
+    }
+
+    for (const ep of endpoints) {
+      try {
+        const res = await fetch(ep, { credentials: 'include' });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.results) && data.results.length > 0) {
+            storeCurriculumResults(data.results);
+            if (currentId) {
+              const idx = curriculumOrderList.findIndex(item => String(item.id) === currentId);
+              if (idx !== -1) {
+                if (idx + 1 < curriculumOrderList.length) {
+                  const nextItem = curriculumOrderList[idx + 1];
+                  const nextType = nextItem.type === 'quiz' ? 'quiz' : 'lecture';
+                  return {
+                    id: String(nextItem.id),
+                    type: nextType,
+                    title: nextItem.title,
+                    index: nextItem.index,
+                    url: `/course/${courseSlug}/learn/${nextType}/${nextItem.id}`
+                  };
+                } else {
+                  return { isLast: true };
+                }
+              }
+            }
+            break;
+          }
+        }
+      } catch (e) {}
+    }
+
+    return null;
+  }
+
+  // --------------------------------------------------------------------------
+  // 15. Kích hoạt chuyển sang bài giảng tiếp theo (Auto Next Đa Lớp)
+  // --------------------------------------------------------------------------
+  async function triggerNextLecture() {
+    console.log('[Udemy Downloader] Bắt đầu kích hoạt chuyển bài tiếp theo...');
+
+    // 1. Đánh dấu hoàn tất video trên trang (Seek video về cuối và phát sự kiện ended)
+    try {
+      const video = document.querySelector('video');
+      if (video && !isNaN(video.duration) && video.duration > 0) {
+        video.currentTime = Math.max(0, video.duration - 0.2);
+        video.dispatchEvent(new Event('timeupdate'));
+        video.dispatchEvent(new Event('ended'));
+      }
+    } catch (e) {}
+
+    // 2. Thử kích hoạt phím tắt chính thức của Udemy Player: Shift + N
+    try {
+      const keyOpts = { key: 'N', code: 'KeyN', keyCode: 78, which: 78, shiftKey: true, bubbles: true, cancelable: true };
+      const targetEl = document.querySelector('video') || document.activeElement || document.body;
+      targetEl.dispatchEvent(new KeyboardEvent('keydown', keyOpts));
+      targetEl.dispatchEvent(new KeyboardEvent('keyup', keyOpts));
+    } catch (e) {}
+
+    // 3. Thử tìm và click các nút Next trên giao diện (bỏ qua thuộc tính disabled)
     const nextSelectors = [
+      '[data-purpose="go-to-next-lecture"]',
       '[data-purpose="go-to-next-button"]',
       '[data-purpose="go-to-next-lecture-button"]',
       '[data-purpose="next-lecture-button"]',
-      '[data-purpose="next-item"]',
+      '[data-purpose="next-lecture"]',
+      '[data-purpose="go-to-next"]',
       '[data-purpose="next-button"]',
+      '[data-purpose="next-item"]',
       'button[data-purpose*="next"]',
       'a[data-purpose*="next"]',
       'button[data-purpose*="go-to-next"]',
@@ -1172,104 +1349,58 @@
       'a[class*="next-button"]'
     ];
 
-    // Đánh thức controls nếu đang bị ẩn tự động
-    const playerContainer = document.querySelector('.video-player--container, [data-purpose="video-controls"], [class*="video-viewer"]');
-    if (playerContainer) {
-      playerContainer.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
-    }
-
-    for (const selector of nextSelectors) {
-      const elements = Array.from(document.querySelectorAll(selector));
+    for (const sel of nextSelectors) {
+      const elements = Array.from(document.querySelectorAll(sel));
       for (const btn of elements) {
-        if (btn && typeof btn.click === 'function' && !btn.disabled) {
-          console.log('[Udemy Downloader] Kích hoạt Next qua nút điều khiển:', selector);
-          btn.click();
-          return { success: true, method: 'video-control-button', selector };
+        if (btn) {
+          try {
+            if (btn.disabled) btn.disabled = false;
+            btn.removeAttribute('disabled');
+            btn.removeAttribute('aria-disabled');
+            btn.click();
+            console.log('[Udemy Downloader] Đã click nút Next:', sel);
+          } catch (e) {}
         }
       }
     }
 
-    // 2. Thử kích hoạt phím tắt chính thức của Udemy Player: Shift + N
-    try {
-      const keyOpts = { key: 'N', code: 'KeyN', keyCode: 78, which: 78, shiftKey: true, bubbles: true, cancelable: true };
-      const targetEl = document.querySelector('video') || document.activeElement || document.body;
-      targetEl.dispatchEvent(new KeyboardEvent('keydown', keyOpts));
-      targetEl.dispatchEvent(new KeyboardEvent('keyup', keyOpts));
-      console.log('[Udemy Downloader] Kích hoạt phím tắt Shift+N');
-    } catch (e) {}
+    // 4. Lấy mục tiêu bài tiếp theo một cách chuẩn xác 100%
+    const nextTarget = await getNextLectureTarget();
+    if (nextTarget) {
+      if (nextTarget.isLast) {
+        return { success: false, isLast: true, error: 'Đã tới bài cuối cùng của khóa học!' };
+      }
 
-    // 3. Sử dụng danh sách giáo trình từ API (curriculumOrderList)
-    if (curriculumOrderList.length > 0 && currentLecId) {
-      const currentIdx = curriculumOrderList.findIndex(item => String(item.id) === currentLecId);
-      if (currentIdx !== -1) {
-        if (currentIdx + 1 < curriculumOrderList.length) {
-          const nextItem = curriculumOrderList[currentIdx + 1];
-          const nextType = nextItem.type === 'quiz' ? 'quiz' : 'lecture';
-          const nextUrl = `/course/${courseSlug}/learn/${nextType}/${nextItem.id}`;
+      if (nextTarget.el && typeof nextTarget.el.click === 'function') {
+        try {
+          nextTarget.el.click();
+        } catch (e) {}
+      }
 
-          // Tìm xem thẻ link bài tiếp theo có trong DOM không
-          const nextDomLink = document.querySelector(`a[href*="/${nextItem.id}"], a[href*="/lecture/${nextItem.id}"], a[href*="/quiz/${nextItem.id}"]`);
-          if (nextDomLink) {
-            // Nếu nằm trong accordion đang đóng, mở ra
-            const parentPanel = nextDomLink.closest('[class*="accordion-panel"], [data-purpose*="section"]');
-            if (parentPanel) {
-              const toggleBtn = parentPanel.querySelector('button[aria-expanded="false"], [data-purpose*="panel-header"]');
-              if (toggleBtn) toggleBtn.click();
-            }
-            console.log('[Udemy Downloader] Click link bài tiếp theo từ danh sách curriculumOrderList:', nextItem);
-            nextDomLink.click();
-            return { success: true, method: 'curriculum-order-link', nextUrl, nextId: nextItem.id };
-          }
+      return {
+        success: true,
+        method: 'target-resolved',
+        nextUrl: nextTarget.url,
+        nextId: nextTarget.id
+      };
+    }
 
-          // Nếu không có trong DOM (ví dụ danh sách thu gọn), trả về nextUrl để chuyển hướng
-          console.log('[Udemy Downloader] Trả về nextUrl để chuyển hướng trực tiếp:', nextUrl);
-          return { success: true, method: 'navigate-url', nextUrl, nextId: nextItem.id };
-        } else {
-          return { success: false, error: 'Đã tới bài cuối cùng của khóa học!' };
-        }
+    // 5. Fallback cuối cùng: Thử click bất kỳ link bài học nào khác bài hiện tại
+    const pageInfo = getCourseAndLectureInfoFromPage();
+    const currentId = String(pageInfo.lectureId || '');
+    const allLinks = Array.from(document.querySelectorAll('a[href*="/lecture/"], a[href*="/quiz/"]'));
+    for (const a of allLinks) {
+      const href = a.getAttribute('href') || '';
+      const m = href.match(/\/(lecture|quiz)\/(\d+)/);
+      if (m && m[2] !== currentId) {
+        try { a.click(); } catch (e) {}
+        return { success: true, method: 'dom-fallback-link', nextUrl: href, nextId: m[2] };
       }
     }
 
-    // 4. Tìm kiếm bài tiếp theo qua các thẻ link curriculum trong DOM
-    const allItemLinks = Array.from(document.querySelectorAll('a[href*="/learn/lecture/"], a[href*="/learn/quiz/"], a[href*="/lecture/"], a[href*="/quiz/"]'));
-    if (allItemLinks.length > 0) {
-      let curIdx = -1;
-      if (currentLecId) {
-        curIdx = allItemLinks.findIndex(a => a.href.includes(`/${currentLecId}`));
-      }
-      if (curIdx === -1) {
-        const curActive = document.querySelector('[class*="curriculum-item-link--is-current"]') || document.querySelector('[aria-current="true"]');
-        if (curActive) {
-          curIdx = allItemLinks.indexOf(curActive) !== -1 ? allItemLinks.indexOf(curActive) : allItemLinks.indexOf(curActive.closest('a'));
-        }
-      }
-
-      if (curIdx !== -1 && curIdx + 1 < allItemLinks.length) {
-        const nextLink = allItemLinks[curIdx + 1];
-        console.log('[Udemy Downloader] Kích hoạt Next qua thẻ link kế tiếp trong DOM');
-        nextLink.click();
-        return { success: true, method: 'dom-link-sequential', nextUrl: nextLink.getAttribute('href') };
-      }
-    }
-
-    // 5. Fallback quét tất cả nút hoặc link chứa chữ Next / Tiếp
-    const allButtons = Array.from(document.querySelectorAll('button, a'));
-    for (const el of allButtons) {
-      const txt = (el.textContent || '').trim().toLowerCase();
-      const aria = (el.getAttribute('aria-label') || '').toLowerCase();
-      const purpose = (el.getAttribute('data-purpose') || '').toLowerCase();
-      if (
-        (purpose.includes('next') || aria.includes('next') || aria.includes('tiếp') || txt === 'next' || txt === 'tiếp theo' || txt === 'bài tiếp theo' || txt === 'next lecture') &&
-        !el.disabled
-      ) {
-        console.log('[Udemy Downloader] Kích hoạt Next qua fallback element:', el);
-        el.click();
-        return { success: true, method: 'fallback-element' };
-      }
-    }
-
-    return { success: false, error: 'Không tìm thấy nút chuyển bài tiếp theo hoặc đây là bài cuối cùng của khóa học.' };
+    return { success: false, error: 'Không tìm thấy bài giảng tiếp theo hoặc đã tới bài cuối cùng của khóa học.' };
   }
+
 
 
   setTimeout(fetchLectureApiDirectly, 1500);
