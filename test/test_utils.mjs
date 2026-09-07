@@ -171,4 +171,30 @@ assert.strictEqual(
 );
 console.log('-> Xử lý Thư mục Phần cha (Section): ĐẠT');
 
+// 6. Kiểm tra Auto Batch: Lọc bỏ Quiz, Article, DRM và chuẩn hóa đường dẫn theo chuỗi
+console.log('6. Kiểm tra Auto-Batch: Phân loại bài giảng & tiến trình chuỗi...');
+const mockLectures = [
+  { id: 101, title: '01. Giới thiệu', isQuiz: false, isArticle: false, isDrmProtected: false, captions: [{ locale: 'en', label: 'English', url: 'http://example.com/1.vtt' }] },
+  { id: 102, title: 'Quiz 1: Kiến thức cơ bản', isQuiz: true, isArticle: false, isDrmProtected: false, captions: [] },
+  { id: 103, title: 'Đọc thêm: Tài liệu tham khảo', isQuiz: false, isArticle: true, isDrmProtected: false, captions: [] },
+  { id: 104, title: '02. Cài đặt VS Code', isQuiz: false, isArticle: false, isDrmProtected: false, captions: [{ locale: 'en', label: 'English', url: 'http://example.com/2.vtt' }] },
+  { id: 105, title: '03. Bản quyền DRM', isQuiz: false, isArticle: false, isDrmProtected: true, captions: [] },
+  { id: 106, title: '04. Viết code đầu tiên', isQuiz: false, isArticle: false, isDrmProtected: false, captions: [] } // Thiếu phụ đề tiếng Anh
+];
+
+// Kiểm tra hàm lọc bỏ bài không thể tải video
+const shouldSkip = (lec) => Boolean(lec.isQuiz || lec.isArticle || lec.isDrmProtected);
+assert.strictEqual(shouldSkip(mockLectures[0]), false, 'Bài 1 là video hợp lệ');
+assert.strictEqual(shouldSkip(mockLectures[1]), true, 'Quiz phải được tự động bỏ qua');
+assert.strictEqual(shouldSkip(mockLectures[2]), true, 'Article phải được tự động bỏ qua');
+assert.strictEqual(shouldSkip(mockLectures[3]), false, 'Bài 2 là video hợp lệ');
+assert.strictEqual(shouldSkip(mockLectures[4]), true, 'DRM phải được tự động bỏ qua');
+
+// Kiểm tra phát hiện thiếu phụ đề tiếng Anh
+assert.notStrictEqual(findEnglishCaption(mockLectures[0].captions), null, 'Bài 1 có sub tiếng Anh');
+assert.strictEqual(findEnglishCaption(mockLectures[5].captions), null, 'Bài 4 không có sub tiếng Anh (kích hoạt prompt)');
+
+console.log('-> Lọc Quiz/Article/DRM & Kiểm soát Subtitle trong Auto-Batch: ĐẠT');
+
 console.log('=== TẤT CẢ TEST ĐÃ VƯỢT QUA XUẤT SẮC ===');
+

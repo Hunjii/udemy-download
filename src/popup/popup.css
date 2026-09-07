@@ -578,6 +578,152 @@ body::-webkit-scrollbar-thumb {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
+/* -------------------------------------------------------------------------- */
+/* Auto-Download Batch Card                                                   */
+/* -------------------------------------------------------------------------- */
+.auto-batch-card {
+  border-color: rgba(164, 53, 240, 0.4);
+  background: linear-gradient(180deg, rgba(164, 53, 240, 0.08) 0%, var(--bg-secondary) 100%);
+}
+
+.batch-card-body {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.batch-input-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.batch-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.batch-stepper {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-primary);
+  overflow: hidden;
+}
+
+.btn-step {
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition);
+}
+
+.btn-step:hover {
+  background-color: var(--bg-tertiary);
+  color: var(--accent-purple);
+}
+
+.batch-count-input {
+  width: 44px;
+  height: 28px;
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--border-color);
+  border-right: 1px solid var(--border-color);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 700;
+  text-align: center;
+  outline: none;
+  -moz-appearance: textfield;
+}
+
+.batch-count-input::-webkit-outer-spin-button,
+.batch-count-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.batch-progress-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.batch-progress-track {
+  width: 100%;
+  height: 6px;
+  background-color: var(--bg-primary);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.batch-progress-track.mini {
+  height: 4px;
+  margin-top: 3px;
+}
+
+.batch-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981, var(--accent-purple));
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.batch-progress-fill.mini {
+  background: linear-gradient(90deg, var(--accent-purple), #ec5252);
+}
+
+.batch-current-box {
+  background-color: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.batch-lecture-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.batch-substep {
+  display: flex;
+  flex-direction: column;
+}
+
+.batch-prompt-box {
+  background-color: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+
+.batch-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
 .section-title {
   padding: 10px 12px;
   font-size: 12px;

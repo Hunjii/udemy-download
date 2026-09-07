@@ -690,8 +690,9 @@
       courseTitle: finalCourseTitle,
       sectionTitle: finalSectionTitle,
       lectureTitle: finalLectureTitle,
-      lectureIndex: finalLectureIndex,
-      assetType: asset.asset_type || 'Video',
+      assetType: asset.asset_type || (window.location.pathname.includes('/quiz/') ? 'Quiz' : 'Video'),
+      isQuiz: payload._class === 'quiz' || window.location.pathname.includes('/quiz/'),
+      isArticle: asset.asset_type === 'Article' || payload._class === 'article',
       isDrmProtected,
       streams,
       bestQuality: streams.length > 0 ? streams[0] : null,
@@ -1082,7 +1083,70 @@
       })();
       return true;
     }
+
+    if (message.type === 'GO_TO_NEXT_LECTURE') {
+      const res = triggerNextLecture();
+      sendResponse(res);
+      return true;
+    }
   });
+
+  // --------------------------------------------------------------------------
+  // 14. Kích hoạt chuyển sang bài giảng tiếp theo (Auto Next)
+  // --------------------------------------------------------------------------
+  function triggerNextLecture() {
+    // 1. Thử click nút Next trên thanh điều khiển video của Udemy
+    const nextButtons = [
+      document.querySelector('[data-purpose="go-to-next-lecture-button"]'),
+      document.querySelector('[data-purpose="next-lecture-button"]'),
+      document.querySelector('button[class*="next-lecture"]'),
+      document.querySelector('[aria-label="Next lecture"]'),
+      document.querySelector('[aria-label="Bài giảng tiếp theo"]'),
+      document.querySelector('[aria-label="Next"]'),
+      document.querySelector('[class*="go-to-next"]')
+    ];
+
+    for (const btn of nextButtons) {
+      if (btn && typeof btn.click === 'function' && !btn.disabled) {
+        console.log('[Udemy Downloader] Kích hoạt Next qua nút điều khiển video');
+        btn.click();
+        return { success: true, method: 'video-control-button' };
+      }
+    }
+
+    // 2. Thử tìm bài giảng tiếp theo trong danh sách giáo trình (Curriculum Drawer)
+    const currentItem = document.querySelector('[class*="curriculum-item-link--is-current"]') ||
+                        document.querySelector('[aria-current="true"]');
+    if (currentItem) {
+      const allItems = Array.from(document.querySelectorAll('a[href*="/lecture/"], [class*="curriculum-item-link"]'));
+      const currentIndex = allItems.indexOf(currentItem);
+      if (currentIndex !== -1 && currentIndex + 1 < allItems.length) {
+        const nextItem = allItems[currentIndex + 1];
+        console.log('[Udemy Downloader] Kích hoạt Next qua danh sách giáo trình');
+        nextItem.click();
+        return { success: true, method: 'curriculum-list' };
+      }
+    }
+
+    // 3. Quét tất cả button hoặc link có chữ Next hiển thị
+    const allCandidates = Array.from(document.querySelectorAll('a, button'));
+    for (const el of allCandidates) {
+      const txt = (el.textContent || '').trim().toLowerCase();
+      const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+      const purpose = (el.getAttribute('data-purpose') || '').toLowerCase();
+      if (
+        (purpose.includes('next') || aria.includes('next') || txt === 'next lecture' || txt === 'bài tiếp theo') &&
+        !el.disabled &&
+        el.offsetParent !== null
+      ) {
+        console.log('[Udemy Downloader] Kích hoạt Next qua fallback element:', el);
+        el.click();
+        return { success: true, method: 'fallback-element' };
+      }
+    }
+
+    return { success: false, error: 'Không tìm thấy nút chuyển bài tiếp theo hoặc đây là bài cuối cùng của khóa học.' };
+  }
 
   setTimeout(fetchLectureApiDirectly, 1500);
 

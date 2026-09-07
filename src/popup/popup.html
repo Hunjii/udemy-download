@@ -152,6 +152,99 @@
             </button>
           </div>
 
+          <!-- Card: Tự động tải liên tục N bài giảng (Auto Next) -->
+          <div class="section-card auto-batch-card">
+            <div class="section-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+              </svg>
+              <span>Tự động tải chuỗi bài (Auto Next)</span>
+              <span id="batch-running-badge" class="badge highlight hidden" style="margin-left: auto;">Đang chạy</span>
+            </div>
+
+            <!-- Trạng thái Cấu hình (Idle) -->
+            <div id="batch-config-view" class="batch-card-body">
+              <div class="batch-input-row">
+                <label for="input-batch-count" class="batch-label">Số lượng bài cần tải:</label>
+                <div class="batch-stepper">
+                  <button id="btn-batch-decrease" class="btn-step" type="button">-</button>
+                  <input type="number" id="input-batch-count" class="batch-count-input" value="5" min="1" max="100">
+                  <button id="btn-batch-increase" class="btn-step" type="button">+</button>
+                </div>
+              </div>
+              <button id="btn-start-batch" class="btn btn-primary full-width" style="margin-top: 4px;">
+                <svg viewBox="0 0 24 24" fill="currentColor" style="width: 15px; height: 15px; margin-right: 6px;">
+                  <path d="M8 5v14l11-7z"/>
+                </svg>
+                <span id="btn-start-batch-text">Bắt đầu tự động tải 5 bài</span>
+              </button>
+            </div>
+
+            <!-- Trạng thái Đang chạy (Active Live Dashboard) -->
+            <div id="batch-live-view" class="batch-card-body hidden">
+              <!-- Header đếm số bài & Progress bar tổng -->
+              <div class="batch-progress-header">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <span style="font-weight: 700; color: #fff;">Tiến độ chuỗi bài:</span>
+                  <span id="batch-counter-text" style="font-weight: 700; color: #d1a8ff;">Bài 1 / 5</span>
+                </div>
+                <div class="batch-progress-track">
+                  <div id="batch-overall-progress-bar" class="batch-progress-fill" style="width: 0%;"></div>
+                </div>
+              </div>
+
+              <!-- Chi tiết bài đang tải -->
+              <div class="batch-current-box">
+                <div id="batch-current-lecture-name" class="batch-lecture-name">Đang chuẩn bị...</div>
+
+                <!-- Tiến trình Video -->
+                <div class="batch-substep">
+                  <div style="display: flex; justify-content: space-between; font-size: 11px;">
+                    <span style="color: var(--text-secondary);">🎬 Video:</span>
+                    <span id="batch-video-status" style="color: #fff;">Chờ tải...</span>
+                  </div>
+                  <div class="batch-progress-track mini">
+                    <div id="batch-video-progress-bar" class="batch-progress-fill mini" style="width: 0%;"></div>
+                  </div>
+                </div>
+
+                <!-- Tiến trình Phụ đề -->
+                <div class="batch-substep">
+                  <div style="display: flex; justify-content: space-between; font-size: 11px;">
+                    <span style="color: var(--text-secondary);">📝 Phụ đề (.srt):</span>
+                    <span id="batch-caption-status" style="color: #6ee7b7;">Chờ tải...</span>
+                  </div>
+                </div>
+
+                <!-- Trạng thái Next / Cooldown -->
+                <div id="batch-cooldown-box" class="batch-substep hidden" style="color: #f59e0b; font-size: 11px; font-weight: 600;">
+                  ⏳ <span id="batch-cooldown-text">Nghỉ 3s trước khi sang bài tiếp...</span>
+                </div>
+              </div>
+
+              <!-- Cảnh báo khi bài thiếu phụ đề tiếng Anh -->
+              <div id="batch-no-sub-prompt" class="batch-prompt-box hidden">
+                <div style="font-size: 11px; color: #fca5a5; margin-bottom: 6px;">
+                  ⚠️ Bài này không có phụ đề Tiếng Anh!
+                </div>
+                <div style="display: flex; gap: 6px;">
+                  <button id="btn-batch-skip-sub" class="btn btn-secondary" style="flex: 1; padding: 4px 6px; font-size: 10.5px;">Bỏ qua & Tiếp tục</button>
+                  <button id="btn-batch-abort-sub" class="btn btn-ghost text-danger" style="padding: 4px 6px; font-size: 10.5px;">Dừng lại</button>
+                </div>
+              </div>
+
+              <!-- Nút điều khiển chuỗi -->
+              <div class="batch-controls-row">
+                <button id="btn-batch-pause" class="btn btn-secondary" style="flex: 1;">
+                  ⏸️ Tạm dừng
+                </button>
+                <button id="btn-batch-stop" class="btn btn-ghost text-danger" style="flex: 1;">
+                  ⏹️ Dừng hẳn
+                </button>
+              </div>
+            </div>
+          </div>
+
           <!-- Accordion: Các độ phân giải khác -->
           <div class="section-card">
             <button id="accordion-toggle" class="accordion-header">
