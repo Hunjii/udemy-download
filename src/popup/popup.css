@@ -326,8 +326,14 @@ body::-webkit-scrollbar-thumb {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Lecture Info Card                                                          */
+/* Lecture Info Card & Content Container                                      */
 /* -------------------------------------------------------------------------- */
+.lecture-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .info-card {
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
@@ -336,6 +342,7 @@ body::-webkit-scrollbar-thumb {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
 .course-name-row {
@@ -411,7 +418,8 @@ body::-webkit-scrollbar-thumb {
 /* Hero Download Box                                                          */
 /* -------------------------------------------------------------------------- */
 .hero-action-box {
-  margin: 2px 0;
+  width: 100%;
+  margin: 0;
 }
 
 .btn {
@@ -567,6 +575,7 @@ body::-webkit-scrollbar-thumb {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   overflow: hidden;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
 .section-title {
@@ -996,6 +1005,10 @@ body.mode-sidebar {
 
   .main-content {
     padding: 8px 10px 14px;
+  }
+
+  .lecture-content {
+    gap: 10px;
   }
 
   .btn-large {
