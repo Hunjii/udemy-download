@@ -32,6 +32,33 @@ export function resolveUrl(relativeOrAbsolute, baseUrl) {
 }
 
 /**
+ * Kiểm tra xem URL có phải là child/media playlist (chứa chỉ 1 độ phân giải) hay không
+ * @param {string} url 
+ * @returns {boolean}
+ */
+export function isChildPlaylistUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  return /\/(?:1080|720|480|360|240|144)\/(?:index|playlist)\.m3u8/i.test(url) ||
+         /index_(?:1080|720|480|360|240|144)\.m3u8/i.test(url);
+}
+
+/**
+ * Suy đoán URL Master Playlist từ URL của Child Playlist
+ * @param {string} url 
+ * @returns {string|null}
+ */
+export function deriveMasterPlaylistUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+  if (/\/(?:1080|720|480|360|240|144)\/(?:index|playlist)\.m3u8/i.test(url)) {
+    return url.replace(/\/(?:1080|720|480|360|240|144)\/(?:index|playlist)\.m3u8/i, '/master.m3u8');
+  }
+  if (/index_(?:1080|720|480|360|240|144)\.m3u8/i.test(url)) {
+    return url.replace(/index_(?:1080|720|480|360|240|144)\.m3u8/i, 'master.m3u8');
+  }
+  return null;
+}
+
+/**
  * Phân tích Master Playlist để lấy danh sách video variants và phụ đề subtitles
  * @param {string} m3u8Content 
  * @param {string} masterUrl 
@@ -49,12 +76,20 @@ export function parseMasterPlaylist(m3u8Content, masterUrl) {
   const isMaster = lines.some(l => l.startsWith('#EXT-X-STREAM-INF') || l.startsWith('#EXT-X-MEDIA:TYPE=SUBTITLES'));
 
   if (!isMaster) {
+    let detectedRes = 720;
+    const resMatch = masterUrl ? masterUrl.match(/[\/_](\d{3,4})(?:p|\/|\.m3u8)/i) : null;
+    if (resMatch) {
+      const parsedRes = parseInt(resMatch[1], 10);
+      if ([1080, 720, 480, 360, 240, 144].includes(parsedRes)) {
+        detectedRes = parsedRes;
+      }
+    }
     return {
       variants: [{
-        label: 'Original',
-        resolution: 720,
-        width: 1280,
-        height: 720,
+        label: `${detectedRes}`,
+        resolution: detectedRes,
+        width: detectedRes === 1080 ? 1920 : (detectedRes === 720 ? 1280 : 854),
+        height: detectedRes,
         bandwidth: 0,
         url: masterUrl
       }],

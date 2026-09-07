@@ -53,8 +53,21 @@
     }
   }
 
+  function isMasterPlaylistUrl(url) {
+    if (!url || typeof url !== 'string') return false;
+    if (url.includes('master.m3u8') || url.includes('playlist.m3u8')) return true;
+    if (/\/(?:1080|720|480|360|240|144)\/(?:index|playlist)\.m3u8/i.test(url)) return false;
+    if (/index_(?:1080|720|480|360|240|144)\.m3u8/i.test(url)) return false;
+    return true;
+  }
+
   function notifyM3u8Stream(m3u8Url) {
-    if (!m3u8Url || window.__UDEMY_LATEST_M3U8_URL__ === m3u8Url) return;
+    if (!m3u8Url) return;
+    // Nếu URL hiện tại đã là master playlist, không để child variant playlist (720p/480p...) ghi đè
+    if (window.__UDEMY_LATEST_M3U8_URL__ && isMasterPlaylistUrl(window.__UDEMY_LATEST_M3U8_URL__) && !isMasterPlaylistUrl(m3u8Url)) {
+      return;
+    }
+    if (window.__UDEMY_LATEST_M3U8_URL__ === m3u8Url) return;
     window.__UDEMY_LATEST_M3U8_URL__ = m3u8Url;
 
     window.postMessage({

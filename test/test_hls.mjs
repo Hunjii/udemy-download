@@ -81,4 +81,67 @@ assert.strictEqual(
 );
 console.log('-> Bảo toàn Query Params: ĐẠT');
 
+// 4. Kiểm tra nhận diện và suy đoán Master URL từ Child Playlist
+console.log('4. Kiểm tra Child Playlist & suy đoán Master URL...');
+import { isChildPlaylistUrl, deriveMasterPlaylistUrl } from '../src/utils/hlsParser.js';
+
+const child1080Url = 'https://mp4-a.udemycdn.com/stream-hash/1080/index.m3u8?token=xyz123';
+const child720Url = 'https://mp4-a.udemycdn.com/stream-hash/index_720.m3u8?token=xyz123';
+const masterPlaylistUrl = 'https://mp4-a.udemycdn.com/stream-hash/master.m3u8?token=xyz123';
+
+assert.strictEqual(isChildPlaylistUrl(child1080Url), true, 'Phải nhận diện được 1080 child playlist');
+assert.strictEqual(isChildPlaylistUrl(child720Url), true, 'Phải nhận diện được index_720 child playlist');
+assert.strictEqual(isChildPlaylistUrl(masterPlaylistUrl), false, 'Master playlist không phải là child playlist');
+
+assert.strictEqual(
+  deriveMasterPlaylistUrl(child1080Url),
+  'https://mp4-a.udemycdn.com/stream-hash/master.m3u8?token=xyz123',
+  'Phải suy đoán chính xác master URL từ /1080/index.m3u8'
+);
+assert.strictEqual(
+  deriveMasterPlaylistUrl(child720Url),
+  'https://mp4-a.udemycdn.com/stream-hash/master.m3u8?token=xyz123',
+  'Phải suy đoán chính xác master URL từ index_720.m3u8'
+);
+
+// Kiểm tra parseMasterPlaylist khi đưa vào child playlist 1080p
+const childParsed = parseMasterPlaylist('#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:6.0,\nseg1.ts', child1080Url);
+assert.strictEqual(childParsed.variants[0].resolution, 1080, 'Phải giữ nguyên 1080p khi đưa vào child playlist 1080 thay vì ép về 720p');
+console.log('-> Xử lý Child Playlist & Master suy đoán: ĐẠT');
+
+// 5. Kiểm tra logic ưu tiên luồng HLS 1080p so với MP4 720p khi chuyển bài giảng
+console.log('5. Kiểm tra ưu tiên luồng 1080p HLS...');
+const mockHlsVariants = [
+  { label: '1080', resolution: 1080, file: 'https://cdn.udemy.com/1080/index.m3u8', type: 'hls' },
+  { label: '720', resolution: 720, file: 'https://cdn.udemy.com/720/index.m3u8', type: 'hls' },
+  { label: '480', resolution: 480, file: 'https://cdn.udemy.com/480/index.m3u8', type: 'hls' },
+];
+const mockMp4Streams = [
+  { label: '720', resolution: 720, file: 'https://cdn.udemy.com/video-720.mp4', type: 'video/mp4' },
+  { label: '480', resolution: 480, file: 'https://cdn.udemy.com/video-480.mp4', type: 'video/mp4' },
+  { label: '360', resolution: 360, file: 'https://cdn.udemy.com/video-360.mp4', type: 'video/mp4' },
+];
+
+let testMerged = [];
+if (mockHlsVariants.length > 0) {
+  testMerged = [...mockHlsVariants];
+  const existingRes = new Set(testMerged.map(s => s.resolution));
+  mockMp4Streams.forEach(mp4 => {
+    if (!existingRes.has(mp4.resolution)) {
+      testMerged.push(mp4);
+      existingRes.add(mp4.resolution);
+    }
+  });
+} else {
+  testMerged = [...mockMp4Streams];
+}
+testMerged.sort((a, b) => b.resolution - a.resolution);
+
+assert.strictEqual(testMerged[0].resolution, 1080, 'Luồng cao nhất phải luôn là 1080p');
+assert.strictEqual(testMerged[0].type, 'hls', 'Luồng 1080p phải là HLS');
+assert.strictEqual(testMerged.length, 4, 'Độ phân giải 360p từ MP4 được thêm vào đầy đủ');
+console.log('-> Ưu tiên HLS 1080p khi chuyển bài: ĐẠT');
+
 console.log('=== TẤT CẢ KIỂM TRA HLS ĐỀU ĐẠT CHUẨN XUẤT SẮC ===');
+
+

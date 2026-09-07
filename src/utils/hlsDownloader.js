@@ -237,3 +237,63 @@ export async function downloadHlsVideo({
     duration: totalDuration
   };
 }
+
+/**
+ * Tải trực tiếp video MP4 (dự phòng khi bài giảng chỉ có luồng MP4 tĩnh)
+ * @param {Object} options
+ * @param {string} options.videoUrl - Đường dẫn file MP4
+ * @param {Function} [options.onProgress] - Callback cập nhật tiến trình
+ * @param {AbortSignal} [options.signal] - Tín hiệu hủy tải
+ * @returns {Promise<{ blob: Blob, sizeBytes: number, duration: number }>}
+ */
+export async function downloadDirectVideo({
+  videoUrl,
+  onProgress = () => {},
+  signal = null
+}) {
+  onProgress({ stage: 'STARTING', percent: 0, message: 'Đang kết nối tải video MP4 trực tiếp...' });
+
+  const res = await fetch(videoUrl, { credentials: 'include', signal });
+  if (!res.ok) {
+    throw new Error(`Không thể tải video MP4 (HTTP ${res.status})`);
+  }
+
+  const contentLength = parseInt(res.headers.get('content-length') || '0', 10);
+  const reader = res.body ? res.body.getReader() : null;
+
+  if (!reader) {
+    const blob = await res.blob();
+    return { blob, sizeBytes: blob.size, duration: 0 };
+  }
+
+  const chunks = [];
+  let receivedBytes = 0;
+  const startTime = Date.now();
+
+  while (true) {
+    if (signal?.aborted) throw new Error('Tác vụ tải đã bị hủy');
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    receivedBytes += value.length;
+
+    const percent = contentLength > 0 ? Math.round((receivedBytes / contentLength) * 100) : 0;
+    const elapsedSec = (Date.now() - startTime) / 1000;
+    const speedMbps = elapsedSec > 0 ? ((receivedBytes * 8) / (elapsedSec * 1024 * 1024)).toFixed(1) : '0';
+    const totalMb = (receivedBytes / (1024 * 1024)).toFixed(1);
+
+    onProgress({
+      stage: 'DOWNLOADING',
+      percent: percent || 50,
+      speedMbps,
+      totalMb,
+      current: totalMb,
+      total: contentLength > 0 ? (contentLength / (1024 * 1024)).toFixed(1) : '?',
+      message: contentLength > 0 ? `Đang tải: ${percent}% (${totalMb} MB)` : `Đang tải: ${totalMb} MB...`
+    });
+  }
+
+  const blob = new Blob(chunks, { type: 'video/mp4' });
+  return { blob, sizeBytes: receivedBytes, duration: 0 };
+}
+

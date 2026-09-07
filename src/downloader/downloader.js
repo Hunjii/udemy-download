@@ -3,7 +3,7 @@
  * Nhận lệnh tải luồng HLS, điều phối downloadHlsVideo và lưu file vào thư mục cấu hình.
  */
 
-import { downloadHlsVideo } from '../utils/hlsDownloader.js';
+import { downloadHlsVideo, downloadDirectVideo } from '../utils/hlsDownloader.js';
 import { cleanLectureTitle, sanitizeName, padIndex, buildDownloadPath } from '../utils/sanitizer.js';
 import { getSettings, getDirectoryHandle } from '../utils/storage.js';
 
@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const rawLectureTitle = urlParams.get('lectureTitle') || 'Lecture';
   const lectureIndexParam = parseInt(urlParams.get('lectureIndex') || '1', 10);
   const quality = urlParams.get('quality') || '1080p';
+  const streamType = urlParams.get('streamType') || 'hls';
 
   // Làm sạch tiêu đề và trích xuất số bài chuẩn
   const cleanedMeta = cleanLectureTitle(rawLectureTitle);
@@ -43,7 +44,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   if (!playlistUrl) {
-    updateStatus('Lỗi: Không tìm thấy đường dẫn phát HLS.', 'error');
+    updateStatus('Lỗi: Không tìm thấy đường dẫn phát video.', 'error');
     return;
   }
 
@@ -54,13 +55,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       sectionTitle,
       lectureTitle: cleanTitle,
       lectureIndex: finalIndex,
-      quality
+      quality,
+      streamType
     });
   } catch (err) {
     if (err.name === 'AbortError' || err.message?.includes('hủy')) {
       updateStatus('Đã hủy tiến trình tải.', 'error');
     } else {
-      console.error('Lỗi khi tải video HLS:', err);
+      console.error('Lỗi khi tải video:', err);
       updateStatus(`Lỗi tải: ${err.message}`, 'error');
     }
   }
@@ -73,15 +75,25 @@ async function startHlsDownloadProcess(meta) {
   const settings = await getSettings();
   const fsHandle = await getDirectoryHandle();
 
-  // Gọi bộ tải đa luồng
-  const result = await downloadHlsVideo({
-    playlistUrl: meta.playlistUrl,
-    concurrency: 5,
-    signal: abortController.signal,
-    onProgress: (info) => {
-      handleProgressUpdate(info);
-    }
-  });
+  const isDirectMp4 = meta.playlistUrl.includes('.mp4') || meta.streamType === 'video/mp4';
+
+  // Gọi bộ tải đa luồng HLS hoặc tải MP4 trực tiếp
+  const result = isDirectMp4
+    ? await downloadDirectVideo({
+        videoUrl: meta.playlistUrl,
+        signal: abortController.signal,
+        onProgress: (info) => {
+          handleProgressUpdate(info);
+        }
+      })
+    : await downloadHlsVideo({
+        playlistUrl: meta.playlistUrl,
+        concurrency: 5,
+        signal: abortController.signal,
+        onProgress: (info) => {
+          handleProgressUpdate(info);
+        }
+      });
 
   updateStatus('Đang hoàn thiện lưu file vào thư mục...', 'info');
 

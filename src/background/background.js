@@ -12,6 +12,14 @@ const tabM3u8Urls = new Map();
 // ----------------------------------------------------------------------------
 // 1. Giám sát các gói tin .m3u8 qua webRequest
 // ----------------------------------------------------------------------------
+function isMasterM3u8(url) {
+  if (!url || typeof url !== 'string') return false;
+  if (url.includes('master.m3u8') || url.includes('playlist.m3u8')) return true;
+  if (/\/(?:1080|720|480|360|240|144)\/(?:index|playlist)\.m3u8/i.test(url)) return false;
+  if (/index_(?:1080|720|480|360|240|144)\.m3u8/i.test(url)) return false;
+  return true;
+}
+
 if (chrome.webRequest && chrome.webRequest.onBeforeRequest) {
   chrome.webRequest.onBeforeRequest.addListener(
     (details) => {
@@ -19,6 +27,12 @@ if (chrome.webRequest && chrome.webRequest.onBeforeRequest) {
       const tabId = details.tabId;
 
       if (tabId > 0 && (url.includes('.m3u8') || url.includes('/hls/'))) {
+        const prevM3u8 = tabM3u8Urls.get(tabId);
+        // Không để child variant playlist (720p/480p...) ghi đè master playlist
+        if (prevM3u8 && isMasterM3u8(prevM3u8) && !isMasterM3u8(url)) {
+          return;
+        }
+
         tabM3u8Urls.set(tabId, url);
 
         // Báo cho content script của tab biết URL m3u8 mới nhất
@@ -49,6 +63,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (tabId) {
         if (message.data) {
           tabLectures.set(tabId, message.data);
+          if (message.data.masterM3u8Url) {
+            tabM3u8Urls.set(tabId, message.data.masterM3u8Url);
+          }
         } else {
           tabLectures.delete(tabId);
           tabM3u8Urls.delete(tabId);

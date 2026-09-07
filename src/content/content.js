@@ -129,6 +129,23 @@
     }
   }
 
+  function isChildPlaylistUrl(url) {
+    if (!url || typeof url !== 'string') return false;
+    return /\/(?:1080|720|480|360|240|144)\/(?:index|playlist)\.m3u8/i.test(url) ||
+           /index_(?:1080|720|480|360|240|144)\.m3u8/i.test(url);
+  }
+
+  function deriveMasterPlaylistUrl(url) {
+    if (!url || typeof url !== 'string') return null;
+    if (/\/(?:1080|720|480|360|240|144)\/(?:index|playlist)\.m3u8/i.test(url)) {
+      return url.replace(/\/(?:1080|720|480|360|240|144)\/(?:index|playlist)\.m3u8/i, '/master.m3u8');
+    }
+    if (/index_(?:1080|720|480|360|240|144)\.m3u8/i.test(url)) {
+      return url.replace(/index_(?:1080|720|480|360|240|144)\.m3u8/i, 'master.m3u8');
+    }
+    return null;
+  }
+
   function parseMasterPlaylistInline(m3u8Content, masterUrl) {
     if (!m3u8Content || typeof m3u8Content !== 'string') return { variants: [], subtitles: [] };
 
@@ -139,10 +156,18 @@
     const isMaster = lines.some(l => l.startsWith('#EXT-X-STREAM-INF') || l.startsWith('#EXT-X-MEDIA:TYPE=SUBTITLES'));
 
     if (!isMaster) {
+      let detectedRes = 720;
+      const resMatch = masterUrl ? masterUrl.match(/[\/_](\d{3,4})(?:p|\/|\.m3u8)/i) : null;
+      if (resMatch) {
+        const parsedRes = parseInt(resMatch[1], 10);
+        if ([1080, 720, 480, 360, 240, 144].includes(parsedRes)) {
+          detectedRes = parsedRes;
+        }
+      }
       return {
         variants: [{
-          label: 'Original',
-          resolution: 720,
+          label: `${detectedRes}`,
+          resolution: detectedRes,
           file: masterUrl,
           type: 'hls',
           masterUrl
@@ -445,6 +470,26 @@
   async function resolveHlsData(m3u8Url) {
     if (!m3u8Url) return { streams: [], subtitles: [] };
 
+    // Nếu m3u8Url là child variant playlist, thử nạp candidate master trước
+    if (isChildPlaylistUrl(m3u8Url)) {
+      const candidateMaster = deriveMasterPlaylistUrl(m3u8Url);
+      if (candidateMaster) {
+        try {
+          const res = await fetch(candidateMaster, { credentials: 'include' });
+          if (res.ok) {
+            const text = await res.text();
+            const parsed = parseMasterPlaylistInline(text, candidateMaster);
+            if (parsed.variants && parsed.variants.length > 0 && parsed.variants.some(v => v.resolution >= 720)) {
+              return {
+                streams: parsed.variants,
+                subtitles: parsed.subtitles
+              };
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
     try {
       const res = await fetch(m3u8Url, { credentials: 'include' });
       if (!res.ok) return { streams: [], subtitles: [] };
@@ -457,10 +502,15 @@
       };
     } catch (err) {
       console.warn('[Udemy Downloader] Lỗi nạp master m3u8:', err);
+      let fallbackRes = 720;
+      const m = m3u8Url.match(/[\/_](\d{3,4})(?:p|\/|\.m3u8)/i);
+      if (m && [1080, 720, 480, 360, 240, 144].includes(parseInt(m[1], 10))) {
+        fallbackRes = parseInt(m[1], 10);
+      }
       return {
         streams: [{
-          label: 'Auto',
-          resolution: 720,
+          label: `${fallbackRes}`,
+          resolution: fallbackRes,
           file: m3u8Url,
           type: 'hls',
           masterUrl: m3u8Url
@@ -471,20 +521,20 @@
   }
 
   // --------------------------------------------------------------------------
-  // 9. Xử lý Payload bài giảng (Hợp nhất 5 nguồn phụ đề)
+  // 9. Xử lý Payload bài giảng (Hợp nhất 5 nguồn phụ đề & Ưu tiên 1080p HLS)
   // --------------------------------------------------------------------------
   async function processLecturePayload(payload, forcedM3u8Url = null) {
     const pageInfo = getCourseAndLectureInfoFromPage();
     const asset = payload.asset || {};
     const streamUrls = asset.stream_urls || payload.stream_urls || {};
 
-    let streams = [];
+    let mp4Streams = [];
     let hlsSubtitles = [];
 
-    // 1. Kiểm tra luồng MP4 trực tiếp
+    // 1. Thu thập luồng MP4 trực tiếp (dự phòng)
     const rawVideoStreams = streamUrls.Video || [];
     if (Array.isArray(rawVideoStreams) && rawVideoStreams.length > 0) {
-      streams = rawVideoStreams
+      mp4Streams = rawVideoStreams
         .filter(s => s.type === 'video/mp4' && s.file)
         .map(s => ({
           label: s.label || 'Unknown',
@@ -494,25 +544,46 @@
         }));
     }
 
-    // 2. Kiểm tra luồng HLS m3u8
-    let hlsMasterUrl = forcedM3u8Url || interceptedMasterM3u8;
+    // 2. Xác định Master M3U8 URL chuẩn cho bài giảng này:
+    // Ưu tiên cao nhất: forcedM3u8Url -> streamUrls.hls[0].file (API chính thức) -> asset.media_sources -> interceptedMasterM3u8
+    let hlsMasterUrl = forcedM3u8Url;
     if (!hlsMasterUrl) {
-      if (Array.isArray(streamUrls.hls) && streamUrls.hls.length > 0) {
+      if (Array.isArray(streamUrls.hls) && streamUrls.hls.length > 0 && streamUrls.hls[0].file) {
         hlsMasterUrl = streamUrls.hls[0].file;
       } else if (Array.isArray(asset.media_sources)) {
         const hlsSource = asset.media_sources.find(s => s.type === 'application/x-mpegURL' || s.src?.includes('.m3u8'));
-        if (hlsSource) hlsMasterUrl = hlsSource.src;
+        if (hlsSource && hlsSource.src) hlsMasterUrl = hlsSource.src;
+      }
+    }
+    if (!hlsMasterUrl && interceptedMasterM3u8) {
+      hlsMasterUrl = interceptedMasterM3u8;
+    }
+
+    let hlsStreams = [];
+    if (hlsMasterUrl) {
+      interceptedMasterM3u8 = hlsMasterUrl;
+      const hlsData = await resolveHlsData(hlsMasterUrl);
+      if (hlsData.streams && hlsData.streams.length > 0) {
+        hlsStreams = hlsData.streams;
+      }
+      if (hlsData.subtitles && hlsData.subtitles.length > 0) {
+        hlsSubtitles = hlsData.subtitles;
       }
     }
 
-    if (hlsMasterUrl) {
-      const hlsData = await resolveHlsData(hlsMasterUrl);
-      if (hlsData.streams.length > 0 && (!streams.length || streams.length === 0)) {
-        streams = hlsData.streams;
-      }
-      if (hlsData.subtitles.length > 0) {
-        hlsSubtitles = hlsData.subtitles;
-      }
+    // HỢP NHẤT LUỒNG: ƯU TIÊN TUYỆT ĐỐI HLS (CHỨA ĐỘ PHÂN GIẢI 1080P CAO NHẤT)
+    let streams = [];
+    if (hlsStreams.length > 0) {
+      streams = [...hlsStreams];
+      const existingRes = new Set(streams.map(s => s.resolution));
+      mp4Streams.forEach(mp4 => {
+        if (!existingRes.has(mp4.resolution)) {
+          streams.push(mp4);
+          existingRes.add(mp4.resolution);
+        }
+      });
+    } else {
+      streams = [...mp4Streams];
     }
 
     streams.sort((a, b) => b.resolution - a.resolution);
@@ -624,6 +695,7 @@
       isDrmProtected,
       streams,
       bestQuality: streams.length > 0 ? streams[0] : null,
+      masterM3u8Url: hlsMasterUrl || null,
       captions,
       supplementaryAssets,
       duration: asset.time_estimation || 0,
@@ -638,6 +710,68 @@
     }).catch(() => {});
 
     return processedData;
+  }
+
+  // --------------------------------------------------------------------------
+  // 9.1 Cập nhật & Nâng cấp Luồng phát khi bắt được M3U8 mới từ Mạng
+  // --------------------------------------------------------------------------
+  async function updateStreamsWithM3u8(m3u8Url) {
+    if (!m3u8Url) return;
+
+    let targetUrl = m3u8Url;
+    if (isChildPlaylistUrl(m3u8Url)) {
+      const derived = deriveMasterPlaylistUrl(m3u8Url);
+      if (derived) targetUrl = derived;
+    }
+
+    const hlsData = await resolveHlsData(targetUrl);
+    if (!hlsData || !hlsData.streams || hlsData.streams.length === 0) return;
+
+    if (!currentLectureInfo) {
+      await fetchLectureApiDirectly();
+    }
+
+    if (currentLectureInfo) {
+      const currentBestRes = currentLectureInfo.bestQuality?.resolution || 0;
+      const newBestRes = hlsData.streams[0]?.resolution || 0;
+
+      let hasNewStream = false;
+      // Nếu luồng HLS mới có độ phân giải cao hơn (ví dụ 1080p > 720p) hoặc hiện tại chưa có HLS
+      if (newBestRes > currentBestRes || !currentLectureInfo.streams?.some(s => s.type === 'hls')) {
+        const mergedStreams = [...hlsData.streams];
+        const existingRes = new Set(mergedStreams.map(s => s.resolution));
+        (currentLectureInfo.streams || []).forEach(s => {
+          if (s.type !== 'hls' && !existingRes.has(s.resolution)) {
+            mergedStreams.push(s);
+            existingRes.add(s.resolution);
+          }
+        });
+        mergedStreams.sort((a, b) => b.resolution - a.resolution);
+        currentLectureInfo.streams = mergedStreams;
+        currentLectureInfo.bestQuality = mergedStreams[0];
+        currentLectureInfo.masterM3u8Url = targetUrl;
+        hasNewStream = true;
+      }
+
+      if (hlsData.subtitles && hlsData.subtitles.length > 0) {
+        const existingCapUrls = new Set((currentLectureInfo.captions || []).map(c => c.url));
+        hlsData.subtitles.forEach(sub => {
+          if (!existingCapUrls.has(sub.url)) {
+            currentLectureInfo.captions.push(sub);
+            existingCapUrls.add(sub.url);
+            hasNewStream = true;
+          }
+        });
+      }
+
+      if (hasNewStream) {
+        console.log(`[Udemy Downloader] Đã nâng cấp luồng bài giảng lên ${currentLectureInfo.bestQuality?.label}p HD!`);
+        chrome.runtime.sendMessage({
+          type: 'UPDATE_LECTURE_DATA',
+          data: currentLectureInfo
+        }).catch(() => {});
+      }
+    }
   }
 
   // --------------------------------------------------------------------------
@@ -669,16 +803,26 @@
         }
       }
     } else if (event.data?.type === 'UDEMY_M3U8_INTERCEPTED') {
-      interceptedMasterM3u8 = event.data.m3u8Url;
-      if (currentLectureInfo && (!currentLectureInfo.streams || currentLectureInfo.streams.length === 0)) {
-        await processLecturePayload(currentLectureInfo, interceptedMasterM3u8);
+      const newM3u8 = event.data.m3u8Url;
+      if (newM3u8) {
+        if (!isChildPlaylistUrl(newM3u8) || !interceptedMasterM3u8) {
+          interceptedMasterM3u8 = newM3u8;
+        }
+        await updateStreamsWithM3u8(newM3u8);
       }
     } else if (event.data?.type === 'UDEMY_CAPTION_INTERCEPTED') {
       const vttUrl = event.data.vttUrl;
       if (vttUrl && !interceptedCaptionsList.includes(vttUrl)) {
         interceptedCaptionsList.push(vttUrl);
         if (currentLectureInfo) {
-          await processLecturePayload(currentLectureInfo, interceptedMasterM3u8);
+          const norm = normalizeCaption({ url: vttUrl });
+          if (norm && !currentLectureInfo.captions.some(c => c.url === vttUrl)) {
+            currentLectureInfo.captions.push(norm);
+            chrome.runtime.sendMessage({
+              type: 'UPDATE_LECTURE_DATA',
+              data: currentLectureInfo
+            }).catch(() => {});
+          }
         }
       }
     } else if (event.data?.type === 'UDEMY_CAPTIONS_LIST_INTERCEPTED') {
@@ -727,7 +871,8 @@
           type: 'UPDATE_LECTURE_DATA',
           data: null
         }).catch(() => {});
-        setTimeout(fetchLectureApiDirectly, 600);
+        setTimeout(fetchLectureApiDirectly, 200);
+        setTimeout(fetchLectureApiDirectly, 800);
       }
     }
   });
@@ -856,7 +1001,13 @@
     }
 
     if (message.type === 'BACKGROUND_DETECTED_M3U8') {
-      interceptedMasterM3u8 = message.m3u8Url;
+      const newM3u8 = message.m3u8Url;
+      if (newM3u8) {
+        if (!isChildPlaylistUrl(newM3u8) || !interceptedMasterM3u8) {
+          interceptedMasterM3u8 = newM3u8;
+        }
+        updateStreamsWithM3u8(newM3u8);
+      }
       return true;
     }
 
@@ -870,8 +1021,9 @@
         interceptedCaptionsList.length = 0;
       }
 
-      // Chỉ trả lời ngay nếu ĐÃ CÓ cả luồng phát VÀ phụ đề cho ĐÚNG bài giảng hiện tại
-      if (currentLectureInfo && currentLectureInfo.streams?.length > 0 && currentLectureInfo.captions?.length > 0) {
+      // Chỉ trả lời ngay nếu ĐÃ CÓ cả luồng phát VÀ phụ đề cho ĐÚNG bài giảng hiện tại, và đã có luồng HLS/1080p
+      const hasHighRes = currentLectureInfo?.streams?.some(s => s.resolution >= 1080 || s.type === 'hls');
+      if (currentLectureInfo && currentLectureInfo.streams?.length > 0 && currentLectureInfo.captions?.length > 0 && hasHighRes) {
         sendResponse({ success: true, data: currentLectureInfo });
         return true;
       }
@@ -949,7 +1101,8 @@
           type: 'UPDATE_LECTURE_DATA',
           data: null
         }).catch(() => {});
-        fetchLectureApiDirectly();
+        setTimeout(fetchLectureApiDirectly, 200);
+        setTimeout(fetchLectureApiDirectly, 800);
       }
     }
   }, 1000);
