@@ -199,3 +199,70 @@ export function buildDownloadPath({
 
   return parts.join('/');
 }
+
+/**
+ * Kiểm tra xem một đối tượng phụ đề có phải là Tiếng Anh hay không
+ * @param {object} c
+ * @returns {boolean}
+ */
+export function isEnglishCaption(c) {
+  if (!c) return false;
+  const loc = (c.locale || '').toLowerCase().replace(/_/g, '-');
+  const lbl = (c.label || '').toLowerCase();
+  const url = (c.url || '').toLowerCase();
+
+  // 1. Kiểm tra locale (en, en-us, en-gb, en-ca, en-au, eng, etc.)
+  if (loc === 'en' || loc.startsWith('en-') || loc.startsWith('en_') || loc === 'eng') {
+    return true;
+  }
+
+  // 2. Kiểm tra nhãn label
+  if (lbl.includes('english') || lbl.includes('tiếng anh') || /\beng?\b/i.test(lbl)) {
+    return true;
+  }
+
+  // 3. Kiểm tra URL (en_US.vtt, en-US.vtt, /en/, locale_id=en, locale=en)
+  if (/[\b_\/\-\.]en(?:[-_]us|[-_]gb|[-_]ca|[-_]au)?[\b_\/\-\.]/i.test(url) || 
+      url.includes('locale_id=en') || 
+      url.includes('locale=en') || 
+      url.includes('/en/')) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Tự động tìm và chỉ lấy tùy chọn tải phụ đề Tiếng Anh (Ưu tiên Manual > Auto > Fallback duy nhất 1 track)
+ * @param {Array<object>} captions
+ * @returns {object|null}
+ */
+export function findEnglishCaption(captions) {
+  if (!captions || !captions.length) return null;
+
+  // 1. Lọc tất cả các track tiếng Anh
+  const enCandidates = captions.filter(isEnglishCaption);
+
+  if (enCandidates.length > 0) {
+    // Ưu tiên bản do người tạo (manual, không gắn nhãn auto / tự động)
+    const manualEn = enCandidates.find(c => {
+      const lbl = (c.label || '').toLowerCase();
+      return !lbl.includes('auto') && !lbl.includes('tự động');
+    });
+    return manualEn || enCandidates[0];
+  }
+
+  // 2. Fallback: Nếu bài giảng chỉ có DUY NHẤT 1 track phụ đề và không phải thứ tiếng khác rõ ràng
+  if (captions.length === 1) {
+    const single = captions[0];
+    const loc = (single.locale || '').toLowerCase();
+    const NON_EN = ['vi', 'es', 'fr', 'de', 'zh', 'ja', 'pt', 'ru', 'ko', 'it', 'ar', 'hi', 'tr', 'pl', 'nl', 'id'];
+    const isOther = NON_EN.some(lang => loc.startsWith(lang));
+    if (!isOther) {
+      return single;
+    }
+  }
+
+  return null;
+}
+

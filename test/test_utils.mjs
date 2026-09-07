@@ -1,6 +1,14 @@
 import assert from 'node:assert';
 import { convertVttToSrt } from '../src/utils/vtt2srt.js';
-import { sanitizeName, padIndex, buildDownloadPath, cleanLectureTitle, cleanSectionTitle } from '../src/utils/sanitizer.js';
+import {
+  sanitizeName,
+  padIndex,
+  buildDownloadPath,
+  cleanLectureTitle,
+  cleanSectionTitle,
+  isEnglishCaption,
+  findEnglishCaption
+} from '../src/utils/sanitizer.js';
 
 console.log('--- BẮT ĐẦU KIỂM TRA UTILS ---');
 
@@ -86,33 +94,39 @@ const sampleCaptions = [
   { id: '4', label: 'Français', locale: 'fr', url: 'http://example.com/fr.vtt' }
 ];
 
-function findEnglishCaptionTest(captions) {
-  if (!captions || !captions.length) return null;
-  const manualEn = captions.find(c => {
-    const loc = (c.locale || '').toLowerCase();
-    const lbl = (c.label || '').toLowerCase();
-    const isEn = loc === 'en' || loc === 'en_us' || loc === 'en-us' || loc === 'en_gb' || loc === 'en-gb' || lbl.includes('english') || lbl === 'en';
-    const isAuto = lbl.includes('auto') || lbl.includes('tự động');
-    return isEn && !isAuto;
-  });
-  if (manualEn) return manualEn;
-  const autoEn = captions.find(c => {
-    const loc = (c.locale || '').toLowerCase();
-    const lbl = (c.label || '').toLowerCase();
-    return loc === 'en' || loc === 'en_us' || loc === 'en-us' || loc === 'en_gb' || loc === 'en-gb' || lbl.includes('english') || lbl.includes('tiếng anh') || lbl === 'en';
-  });
-  if (autoEn) return autoEn;
-  return null;
-}
-
-const chosen = findEnglishCaptionTest(sampleCaptions);
+const chosen = findEnglishCaption(sampleCaptions);
 assert.strictEqual(chosen.label, 'English', 'Phải ưu tiên bản English của giảng viên');
 
+// 4.1 Kiểm tra các dạng locale tiếng Anh (en-US, en-GB, en-ca, eng)
+assert.strictEqual(isEnglishCaption({ locale: 'en-US', label: 'English' }), true, 'en-US phải là tiếng Anh');
+assert.strictEqual(isEnglishCaption({ locale: 'en_GB', label: 'British English' }), true, 'en_GB phải là tiếng Anh');
+assert.strictEqual(isEnglishCaption({ locale: 'en-ca', label: 'English' }), true, 'en-ca phải là tiếng Anh');
+assert.strictEqual(isEnglishCaption({ locale: 'eng', label: 'English' }), true, 'eng phải là tiếng Anh');
+
+// 4.2 Kiểm tra URL chứa dấu hiệu tiếng Anh
+assert.strictEqual(isEnglishCaption({ url: 'https://udemy.com/subs/en_US.vtt' }), true, 'URL chứa en_US.vtt phải là tiếng Anh');
+assert.strictEqual(isEnglishCaption({ url: 'https://udemy.com/api?locale_id=en_US' }), true, 'URL chứa locale_id=en_US phải là tiếng Anh');
+
+// 4.3 Kiểm tra Fallback: 1 bài giảng chỉ có DUY NHẤT 1 track phụ đề không rõ thứ tiếng (label: Subtitles)
+const singleGenericSub = [
+  { id: '1', label: 'Subtitles', locale: '', url: 'http://example.com/sub.vtt' }
+];
+const chosenSingle = findEnglishCaption(singleGenericSub);
+assert.notStrictEqual(chosenSingle, null, 'Single track không rõ thứ tiếng phải được nhận diện là tiếng Anh');
+assert.strictEqual(chosenSingle.url, 'http://example.com/sub.vtt');
+
+// 4.4 Không nhận các thứ tiếng khác (ví dụ: es, de, vi)
 const onlyForeign = [
   { id: '1', label: 'Español', locale: 'es', url: 'http://example.com/es.vtt' },
   { id: '2', label: 'Deutsch', locale: 'de', url: 'http://example.com/de.vtt' }
 ];
-assert.strictEqual(findEnglishCaptionTest(onlyForeign), null, 'Nếu không có English thì phải trả về null');
+assert.strictEqual(findEnglishCaption(onlyForeign), null, 'Nếu không có English thì phải trả về null');
+
+const singleForeign = [
+  { id: '1', label: 'Tiếng Việt', locale: 'vi', url: 'http://example.com/vi.vtt' }
+];
+assert.strictEqual(findEnglishCaption(singleForeign), null, 'Single track rõ ràng là tiếng khác không được nhận bừa');
+console.log('-> Lọc Phụ đề Tiếng Anh: ĐẠT');
 
 // 5. Kiểm tra Làm sạch tiêu đề Phần cha (Section) và đường dẫn lồng thư mục
 console.log('5. Kiểm tra Làm sạch Section & Thư mục lồng...');

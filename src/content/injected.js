@@ -12,6 +12,7 @@
   window.__UDEMY_LATEST_LECTURE_DATA__ = null;
   window.__UDEMY_LATEST_M3U8_URL__ = null;
   window.__UDEMY_INTERCEPTED_CAPTIONS__ = [];
+  window.__UDEMY_INTERCEPTED_CAPTIONS_LIST__ = [];
 
   function notifyLectureData(data, sourceUrl = '') {
     try {
@@ -33,6 +34,22 @@
       }, '*');
     } catch (e) {
       console.warn('[Udemy Downloader] Lỗi phân tích gói tin bài giảng:', e);
+    }
+  }
+
+  function notifyCaptionsList(captions, sourceUrl = '') {
+    try {
+      if (!Array.isArray(captions) || captions.length === 0) return;
+      window.__UDEMY_INTERCEPTED_CAPTIONS_LIST__ = captions;
+
+      window.postMessage({
+        type: 'UDEMY_CAPTIONS_LIST_INTERCEPTED',
+        captions,
+        sourceUrl,
+        timestamp: Date.now()
+      }, '*');
+    } catch (e) {
+      console.warn('[Udemy Downloader] Lỗi phân tích danh sách phụ đề:', e);
     }
   }
 
@@ -79,11 +96,16 @@
     try {
       const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
 
-      // 1.1 Bắt gói tin API bài giảng
+      // 1.1 Bắt gói tin API bài giảng hoặc API phụ đề chuyên biệt
       if (url.includes('/api-2.0/') && (url.includes('/lectures/') || url.includes('/subscribed-courses/'))) {
         const clone = response.clone();
         clone.json().then(data => {
-          notifyLectureData(data, url);
+          if (url.includes('/captions')) {
+            const list = Array.isArray(data) ? data : (Array.isArray(data?.results) ? data.results : (data?.captions || []));
+            notifyCaptionsList(list, url);
+          } else {
+            notifyLectureData(data, url);
+          }
         }).catch(() => {});
       }
 
@@ -100,8 +122,8 @@
         notifyM3u8Stream(url);
       }
 
-      // 1.4 Bắt file phụ đề .vtt
-      if (url.includes('.vtt') || url.includes('/captions/') || url.includes('/subtitles/')) {
+      // 1.4 Bắt file phụ đề .vtt trực tiếp
+      if (url.includes('.vtt') || (!url.includes('/api-2.0/') && (url.includes('/captions/') || url.includes('/subtitles/')))) {
         notifyCaption(url);
       }
     } catch (err) {}
@@ -127,7 +149,12 @@
           if (url.includes('/api-2.0/') && (url.includes('/lectures/') || url.includes('/subscribed-courses/'))) {
             if (this.responseText) {
               const data = JSON.parse(this.responseText);
-              notifyLectureData(data, url);
+              if (url.includes('/captions')) {
+                const list = Array.isArray(data) ? data : (Array.isArray(data?.results) ? data.results : (data?.captions || []));
+                notifyCaptionsList(list, url);
+              } else {
+                notifyLectureData(data, url);
+              }
             }
           } else if (url.includes('/subscriber-curriculum-items/') || url.includes('/curriculum-items/')) {
             if (this.responseText) {
@@ -136,7 +163,7 @@
             }
           } else if (url.includes('.m3u8') || url.includes('/hls/')) {
             notifyM3u8Stream(url);
-          } else if (url.includes('.vtt') || url.includes('/captions/') || url.includes('/subtitles/')) {
+          } else if (url.includes('.vtt') || (!url.includes('/api-2.0/') && (url.includes('/captions/') || url.includes('/subtitles/')))) {
             notifyCaption(url);
           }
         }
@@ -163,6 +190,12 @@
           m3u8Url: window.__UDEMY_LATEST_M3U8_URL__
         }, '*');
       }
+      if (window.__UDEMY_INTERCEPTED_CAPTIONS_LIST__ && window.__UDEMY_INTERCEPTED_CAPTIONS_LIST__.length > 0) {
+        window.postMessage({
+          type: 'UDEMY_CAPTIONS_LIST_INTERCEPTED',
+          captions: window.__UDEMY_INTERCEPTED_CAPTIONS_LIST__
+        }, '*');
+      }
       window.__UDEMY_INTERCEPTED_CAPTIONS__.forEach(vttUrl => {
         window.postMessage({
           type: 'UDEMY_CAPTION_INTERCEPTED',
@@ -181,13 +214,13 @@
       if (video.src && video.src.includes('.m3u8')) {
         notifyM3u8Stream(video.src);
       }
-      // Quét các thẻ <track>
-      const tracks = video.querySelectorAll('track');
-      tracks.forEach(track => {
-        if (track.src) {
-          notifyCaption(track.src);
-        }
-      });
     }
+    // Quét tất cả thẻ <track> trên toàn trang
+    const tracks = document.querySelectorAll('track');
+    tracks.forEach(track => {
+      if (track.src) {
+        notifyCaption(track.src);
+      }
+    });
   }, 2000);
 })();

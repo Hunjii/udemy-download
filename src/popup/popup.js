@@ -4,7 +4,7 @@
  */
 
 import { convertVttToSrt } from '../utils/vtt2srt.js';
-import { cleanLectureTitle, sanitizeName, padIndex } from '../utils/sanitizer.js';
+import { cleanLectureTitle, sanitizeName, padIndex, isEnglishCaption, findEnglishCaption } from '../utils/sanitizer.js';
 import { TabRecorder } from '../utils/tabRecorder.js';
 import {
   getSettings,
@@ -227,6 +227,16 @@ async function detectCurrentLecture() {
 
     if (bgResponse && bgResponse.success && bgResponse.data) {
       renderLecture(bgResponse.data);
+      // Nếu dữ liệu cache chưa có phụ đề Tiếng Anh, kích hoạt quét ngầm từ Content Script
+      if (!findEnglishCaption(bgResponse.data.captions)) {
+        chrome.tabs.sendMessage(activeTab.id, { type: 'FETCH_CAPTIONS_FORCE' }, (res) => {
+          if (res && Array.isArray(res.captions) && res.captions.length > 0) {
+            bgResponse.data.captions = res.captions;
+            if (currentLecture) currentLecture.captions = res.captions;
+            renderEnglishCaption(res.captions);
+          }
+        });
+      }
       return;
     }
   } catch (e) {}
@@ -241,6 +251,15 @@ async function detectCurrentLecture() {
 
     if (csResponse && csResponse.success && csResponse.data) {
       renderLecture(csResponse.data);
+      if (!findEnglishCaption(csResponse.data.captions)) {
+        chrome.tabs.sendMessage(activeTab.id, { type: 'FETCH_CAPTIONS_FORCE' }, (res) => {
+          if (res && Array.isArray(res.captions) && res.captions.length > 0) {
+            csResponse.data.captions = res.captions;
+            if (currentLecture) currentLecture.captions = res.captions;
+            renderEnglishCaption(res.captions);
+          }
+        });
+      }
       return;
     }
 
@@ -360,50 +379,55 @@ function renderQualityList(streams, bestStream) {
   });
 }
 
-/**
- * Tự động tìm và chỉ hiển thị tùy chọn tải phụ đề Tiếng Anh (loại bỏ danh sách rối mắt)
- */
-function findEnglishCaption(captions) {
-  if (!captions || !captions.length) return null;
-
-  // 1. Ưu tiên bản English chuẩn do người tạo (manual, không có nhãn auto / tự động)
-  const manualEn = captions.find(c => {
-    const loc = (c.locale || '').toLowerCase();
-    const lbl = (c.label || '').toLowerCase();
-    const isEn = loc === 'en' || loc === 'en_us' || loc === 'en-us' || loc === 'en_gb' || loc === 'en-gb' || lbl.includes('english') || lbl === 'en';
-    const isAuto = lbl.includes('auto') || lbl.includes('tự động');
-    return isEn && !isAuto;
-  });
-  if (manualEn) return manualEn;
-
-  // 2. Ưu tiên bản English [Auto]
-  const autoEn = captions.find(c => {
-    const loc = (c.locale || '').toLowerCase();
-    const lbl = (c.label || '').toLowerCase();
-    return loc === 'en' || loc === 'en_us' || loc === 'en-us' || loc === 'en_gb' || loc === 'en-gb' || lbl.includes('english') || lbl.includes('tiếng anh') || lbl === 'en';
-  });
-  if (autoEn) return autoEn;
-
-  // 3. Không fallback sang thứ tiếng khác nếu không có Tiếng Anh
-  return null;
+async function rescanCaptions() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) return;
+    const res = await new Promise(resolve => {
+      chrome.tabs.sendMessage(tab.id, { type: 'FETCH_CAPTIONS_FORCE' }, resolve);
+    });
+    if (res && Array.isArray(res.captions)) {
+      if (currentLecture) currentLecture.captions = res.captions;
+      renderEnglishCaption(res.captions);
+      if (findEnglishCaption(res.captions)) {
+        showStatusBanner('Đã tìm thấy phụ đề Tiếng Anh!', 'success');
+      } else {
+        showStatusBanner('Không tìm thấy phụ đề Tiếng Anh cho bài này.', 'error');
+      }
+    }
+  } catch (e) {
+    console.warn('Lỗi khi tìm lại phụ đề:', e);
+  }
 }
 
 function renderEnglishCaption(captions) {
   const statusText = document.getElementById('caption-status-text');
   const subText = document.getElementById('caption-sub-text');
   const btnDownloadCaption = document.getElementById('btn-download-caption');
+  const btnRescan = document.getElementById('btn-rescan-caption');
 
   const enCap = findEnglishCaption(captions);
 
   if (!enCap) {
     statusText.textContent = 'Không có phụ đề Tiếng Anh';
     statusText.style.color = 'var(--text-muted)';
-    subText.textContent = 'Bài giảng này không có phụ đề Tiếng Anh';
+    subText.textContent = 'Bấm "Tìm lại" nếu video vừa tải xong';
     btnDownloadCaption.disabled = true;
+    if (btnRescan) {
+      btnRescan.classList.remove('hidden');
+      btnRescan.onclick = async () => {
+        btnRescan.disabled = true;
+        btnRescan.textContent = '⏳ Đang quét...';
+        await rescanCaptions();
+        btnRescan.disabled = false;
+        btnRescan.textContent = '🔄 Tìm lại';
+      };
+    }
     return;
   }
 
-  statusText.textContent = `Sẵn sàng: ${enCap.label}`;
+  if (btnRescan) btnRescan.classList.add('hidden');
+  statusText.textContent = `Sẵn sàng: ${enCap.label || 'English'}`;
   statusText.style.color = '#6ee7b7';
   subText.textContent = 'Tự động khớp tên với video để xem offline';
   btnDownloadCaption.disabled = false;

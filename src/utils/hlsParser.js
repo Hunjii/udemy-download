@@ -53,17 +53,20 @@ export function parseMasterPlaylist(m3u8Content, masterUrl) {
 
     // 1. Phân tích phụ đề: #EXT-X-MEDIA:TYPE=SUBTITLES,...
     if (line.startsWith('#EXT-X-MEDIA:') && line.includes('TYPE=SUBTITLES')) {
-      const nameMatch = line.match(/NAME="([^"]+)"/i);
-      const langMatch = line.match(/LANGUAGE="([^"]+)"/i);
-      const uriMatch = line.match(/URI="([^"]+)"/i);
+      const nameMatch = line.match(/NAME=(?:"([^"]+)"|([^,]+))/i);
+      const langMatch = line.match(/LANGUAGE=(?:"([^"]+)"|([^,]+))/i);
+      const uriMatch = line.match(/URI=(?:"([^"]+)"|([^,]+))/i);
 
       if (uriMatch) {
-        const fullSubUrl = resolveUrl(uriMatch[1], masterUrl);
-        const label = nameMatch ? nameMatch[1] : (langMatch ? langMatch[1] : 'Subtitles');
+        const rawUri = (uriMatch[1] || uriMatch[2] || '').trim();
+        const fullSubUrl = resolveUrl(rawUri, masterUrl);
+        const nameVal = nameMatch ? (nameMatch[1] || nameMatch[2] || '').trim() : '';
+        const langVal = langMatch ? (langMatch[1] || langMatch[2] || '').trim() : '';
+        const label = nameVal || langVal || 'Subtitles';
         subtitles.push({
           id: `hls-sub-${subtitles.length + 1}`,
           label,
-          locale: langMatch ? langMatch[1] : '',
+          locale: langVal,
           url: fullSubUrl
         });
       }

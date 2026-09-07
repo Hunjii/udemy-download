@@ -24,6 +24,18 @@ assert.strictEqual(subtitles.length, 2, 'Phải trích xuất được 2 ngôn n
 assert.strictEqual(subtitles[0].label, 'English [Auto]', 'Tên phụ đề 1 chuẩn');
 assert.strictEqual(subtitles[0].url, 'https://udemy-cdn.com/stream/captions/en.vtt', 'URL phụ đề 1 chuẩn');
 assert.strictEqual(subtitles[1].label, 'Tiếng Việt', 'Tên phụ đề 2 chuẩn');
+
+// Kiểm tra Master Playlist với thuộc tính KHÔNG có dấu ngoặc kép (unquoted attributes)
+const unquotedMaster = `#EXTM3U
+#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME=English,DEFAULT=YES,LANGUAGE=en,URI=captions/en.vtt
+#EXT-X-STREAM-INF:BANDWIDTH=1500000,RESOLUTION=1280x720
+720.m3u8
+`;
+const unquotedParsed = parseMasterPlaylist(unquotedMaster, 'https://udemy.com/test/master.m3u8');
+assert.strictEqual(unquotedParsed.subtitles.length, 1, 'Phải parse được phụ đề không có ngoặc kép');
+assert.strictEqual(unquotedParsed.subtitles[0].label, 'English', 'Label unquoted chuẩn');
+assert.strictEqual(unquotedParsed.subtitles[0].locale, 'en', 'Locale unquoted chuẩn');
+assert.strictEqual(unquotedParsed.subtitles[0].url, 'https://udemy.com/test/captions/en.vtt', 'URL unquoted chuẩn');
 console.log('-> parseMasterPlaylist: ĐẠT');
 
 // 2. Kiểm tra parseMediaPlaylist với AES-128 và fMP4

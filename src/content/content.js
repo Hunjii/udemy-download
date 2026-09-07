@@ -140,19 +140,22 @@
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
 
-      // Phân tích phụ đề trong master m3u8
+      // Phân tích phụ đề trong master m3u8 (hỗ trợ cả có ngoặc kép hoặc không)
       if (line.startsWith('#EXT-X-MEDIA:') && line.includes('TYPE=SUBTITLES')) {
-        const nameMatch = line.match(/NAME="([^"]+)"/i);
-        const langMatch = line.match(/LANGUAGE="([^"]+)"/i);
-        const uriMatch = line.match(/URI="([^"]+)"/i);
+        const nameMatch = line.match(/NAME=(?:"([^"]+)"|([^,]+))/i);
+        const langMatch = line.match(/LANGUAGE=(?:"([^"]+)"|([^,]+))/i);
+        const uriMatch = line.match(/URI=(?:"([^"]+)"|([^,]+))/i);
 
         if (uriMatch) {
-          const fullSubUrl = resolveUrl(uriMatch[1], masterUrl);
-          const label = nameMatch ? nameMatch[1] : (langMatch ? langMatch[1] : 'Subtitles');
+          const rawUri = (uriMatch[1] || uriMatch[2] || '').trim();
+          const fullSubUrl = resolveUrl(rawUri, masterUrl);
+          const nameVal = nameMatch ? (nameMatch[1] || nameMatch[2] || '').trim() : '';
+          const langVal = langMatch ? (langMatch[1] || langMatch[2] || '').trim() : '';
+          const label = nameVal || langVal || 'Subtitles';
           subtitles.push({
             id: `hls-sub-${subtitles.length + 1}`,
             label,
-            locale: langMatch ? langMatch[1] : '',
+            locale: langVal,
             url: fullSubUrl
           });
         }
@@ -202,14 +205,14 @@
   }
 
   // --------------------------------------------------------------------------
-  // 4. Trích xuất Phụ đề từ thẻ <track> và <video> trong DOM
+  // 4. Trích xuất Phụ đề từ thẻ <track> trên toàn DOM
   // --------------------------------------------------------------------------
   function getCaptionsFromDom() {
     const domCaptions = [];
-    const tracks = document.querySelectorAll('video track');
+    const tracks = document.querySelectorAll('track');
     tracks.forEach((track, idx) => {
       const src = track.src;
-      if (src && (track.kind === 'captions' || track.kind === 'subtitles' || src.includes('.vtt'))) {
+      if (src && (track.kind === 'captions' || track.kind === 'subtitles' || src.includes('.vtt') || track.srclang)) {
         const label = track.label || track.srclang || `Subtitle ${idx + 1}`;
         domCaptions.push({
           id: `dom-track-${idx}`,
@@ -230,11 +233,21 @@
     const url = c.url || c.file_url || c.file || c.download_url || c.src || '';
     if (!url) return null;
 
-    const label = c.label || c.title || c.locale_id || c.language || c.name || 'Subtitles';
-    const locale = c.locale_id || c.srclang || c.language || '';
+    let label = c.label || c.title || c.video_label || c.name || '';
+    let locale = c.locale_id || c.locale || c.srclang || c.language || '';
+
+    // Dự đoán ngôn ngữ nếu locale còn thiếu
+    if (!locale) {
+      const m = url.match(/([a-z]{2}(?:[_-][a-z]{2})?)\.vtt/i) || url.match(/locale(?:_id)?=([a-z]{2}(?:[_-][a-z]{2})?)/i);
+      if (m) locale = m[1];
+    }
+
+    if (!label) {
+      label = locale ? `Subtitles (${locale})` : 'English';
+    }
 
     return {
-      id: c.id || Math.random().toString(),
+      id: c.id ? String(c.id) : `cap-${Math.random().toString(36).substr(2, 9)}`,
       label,
       locale,
       url
@@ -506,12 +519,27 @@
       ...(Array.isArray(asset.captions) ? asset.captions : []),
       ...(Array.isArray(payload.captions) ? payload.captions : [])
     ];
+    let hasShallowCaptions = false;
     rawApiCaptions.forEach(item => {
       const norm = normalizeCaption(item);
       if (norm && !captionsMap.has(norm.url)) {
         captionsMap.set(norm.url, norm);
+      } else if (item && (item.id || item.locale_id) && !item.url) {
+        hasShallowCaptions = true;
       }
     });
+
+    // Nếu API chỉ trả về stub ID nông mà không có url, chủ động gọi endpoint captions chi tiết
+    if (hasShallowCaptions && captionsMap.size === 0 && (payload.id || pageInfo.lectureId)) {
+      const targetLecId = payload.id || pageInfo.lectureId;
+      const targetCourseId = pageInfo.courseId || cachedCourseId;
+      const directCaps = await fetchCaptionsDirectly(targetCourseId, targetLecId);
+      directCaps.forEach(item => {
+        if (item.url && !captionsMap.has(item.url)) {
+          captionsMap.set(item.url, item);
+        }
+      });
+    }
 
     // Nguồn 4.2: Phụ đề trích xuất từ Master HLS Playlist
     hlsSubtitles.forEach(item => {
@@ -639,6 +667,41 @@
           await processLecturePayload(currentLectureInfo, interceptedMasterM3u8);
         }
       }
+    } else if (event.data?.type === 'UDEMY_CAPTIONS_LIST_INTERCEPTED') {
+      const list = event.data.captions || [];
+      if (list.length > 0) {
+        let changed = false;
+        if (!currentLectureInfo) {
+          const pageInfo = getCourseAndLectureInfoFromPage();
+          currentLectureInfo = {
+            lectureId: pageInfo.lectureId,
+            courseId: pageInfo.courseId || cachedCourseId,
+            courseTitle: pageInfo.courseTitle,
+            sectionTitle: pageInfo.sectionTitle,
+            lectureTitle: pageInfo.lectureTitle,
+            lectureIndex: pageInfo.lectureIndex,
+            streams: [],
+            captions: [],
+            supplementaryAssets: [],
+            timestamp: Date.now()
+          };
+        }
+        const existingUrls = new Set(currentLectureInfo.captions.map(c => c.url));
+        list.forEach(item => {
+          const norm = normalizeCaption(item);
+          if (norm && !existingUrls.has(norm.url)) {
+            currentLectureInfo.captions.push(norm);
+            existingUrls.add(norm.url);
+            changed = true;
+          }
+        });
+        if (changed) {
+          chrome.runtime.sendMessage({
+            type: 'UPDATE_LECTURE_DATA',
+            data: currentLectureInfo
+          }).catch(() => {});
+        }
+      }
     }
   });
 
@@ -676,7 +739,42 @@
   }
 
   // --------------------------------------------------------------------------
-  // 11. Fallback chủ động gọi API khi người dùng mở Popup
+  // 11. Gọi trực tiếp endpoint Phụ đề của Udemy để lấy đầy đủ URL .vtt
+  // --------------------------------------------------------------------------
+  async function fetchCaptionsDirectly(courseId, lectureId) {
+    if (!lectureId) return [];
+    const endpoints = [];
+    const fields = 'fields[caption]=@default,url,locale_id,title,video_label,source';
+    if (courseId) {
+      endpoints.push(`/api-2.0/users/me/subscribed-courses/${courseId}/lectures/${lectureId}/captions/?${fields}`);
+    }
+    endpoints.push(`/api-2.0/lectures/${lectureId}/captions/?${fields}`);
+
+    for (const endpoint of endpoints) {
+      try {
+        const res = await fetch(endpoint, {
+          credentials: 'include',
+          headers: { 'Accept': 'application/json, text/plain, */*' }
+        });
+        if (res.ok) {
+          const json = await res.json();
+          const rawList = Array.isArray(json) ? json : (Array.isArray(json.results) ? json.results : (json.captions || []));
+          if (rawList.length > 0) {
+            const normList = rawList.map(normalizeCaption).filter(Boolean);
+            if (normList.length > 0) {
+              return normList;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[Udemy Downloader] Thử endpoint captions lỗi:', e);
+      }
+    }
+    return [];
+  }
+
+  // --------------------------------------------------------------------------
+  // 12. Fallback chủ động gọi API khi người dùng mở Popup
   // --------------------------------------------------------------------------
   async function fetchLectureApiDirectly() {
     const pageInfo = getCourseAndLectureInfoFromPage();
@@ -692,9 +790,10 @@
     }
 
     try {
+      const captionField = '&fields[caption]=@default,url,locale_id,title,video_label,source';
       const url = courseId
-        ? `/api-2.0/users/me/subscribed-courses/${courseId}/lectures/${pageInfo.lectureId}/?fields[lecture]=title,asset,supplementary_assets,description,download_urls,captions&fields[asset]=@default,stream_urls,download_urls,captions,media_sources,media_license_token,course_is_drmed`
-        : `/api-2.0/lectures/${pageInfo.lectureId}/?fields[lecture]=title,asset,supplementary_assets,description,download_urls,captions&fields[asset]=@default,stream_urls,download_urls,captions,media_sources,media_license_token,course_is_drmed`;
+        ? `/api-2.0/users/me/subscribed-courses/${courseId}/lectures/${pageInfo.lectureId}/?fields[lecture]=title,asset,supplementary_assets,description,download_urls,captions&fields[asset]=@default,stream_urls,download_urls,captions,media_sources,media_license_token,course_is_drmed${captionField}`
+        : `/api-2.0/lectures/${pageInfo.lectureId}/?fields[lecture]=title,asset,supplementary_assets,description,download_urls,captions&fields[asset]=@default,stream_urls,download_urls,captions,media_sources,media_license_token,course_is_drmed${captionField}`;
 
       const res = await fetch(url, {
         credentials: 'include',
@@ -703,7 +802,15 @@
 
       if (res.ok) {
         const data = await res.json();
-        return await processLecturePayload(data);
+        const processed = await processLecturePayload(data);
+        if (processed && (!processed.captions || processed.captions.length === 0)) {
+          const directCaps = await fetchCaptionsDirectly(courseId, pageInfo.lectureId);
+          if (directCaps.length > 0) {
+            processed.captions = directCaps;
+            if (currentLectureInfo) currentLectureInfo.captions = directCaps;
+          }
+        }
+        return processed;
       }
     } catch (err) {
       console.warn('[Udemy Downloader] Lỗi gọi fallback API:', err);
@@ -713,7 +820,7 @@
   }
 
   // --------------------------------------------------------------------------
-  // 12. Lắng nghe tin nhắn từ Popup và Background
+  // 13. Lắng nghe tin nhắn từ Popup và Background
   // --------------------------------------------------------------------------
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'PING') {
@@ -727,16 +834,27 @@
     }
 
     if (message.type === 'GET_CURRENT_LECTURE_FROM_PAGE') {
-      if (currentLectureInfo && currentLectureInfo.streams?.length > 0) {
+      // Chỉ trả lời ngay nếu ĐÃ CÓ cả luồng phát VÀ phụ đề
+      if (currentLectureInfo && currentLectureInfo.streams?.length > 0 && currentLectureInfo.captions?.length > 0) {
         sendResponse({ success: true, data: currentLectureInfo });
         return true;
       }
 
       window.postMessage({ type: 'UDEMY_REQUEST_LATEST_DATA' }, '*');
 
-      fetchLectureApiDirectly().then(data => {
-        if (data) {
-          sendResponse({ success: true, data });
+      fetchLectureApiDirectly().then(async (data) => {
+        const targetData = data || currentLectureInfo;
+        if (targetData && (!targetData.captions || targetData.captions.length === 0)) {
+          const pageInfo = getCourseAndLectureInfoFromPage();
+          const caps = await fetchCaptionsDirectly(pageInfo.courseId || cachedCourseId, pageInfo.lectureId);
+          if (caps.length > 0) {
+            targetData.captions = caps;
+            if (currentLectureInfo) currentLectureInfo.captions = caps;
+          }
+        }
+
+        if (targetData) {
+          sendResponse({ success: true, data: targetData });
         } else {
           const pageInfo = getCourseAndLectureInfoFromPage();
           sendResponse({
@@ -748,6 +866,32 @@
         }
       });
 
+      return true;
+    }
+
+    if (message.type === 'FETCH_CAPTIONS_FORCE') {
+      (async () => {
+        const pageInfo = getCourseAndLectureInfoFromPage();
+        const courseId = pageInfo.courseId || cachedCourseId;
+        const lectureId = pageInfo.lectureId;
+        const directCaps = await fetchCaptionsDirectly(courseId, lectureId);
+        const domCaps = getCaptionsFromDom();
+
+        const map = new Map();
+        (currentLectureInfo?.captions || []).forEach(c => map.set(c.url, c));
+        directCaps.forEach(c => map.set(c.url, c));
+        domCaps.forEach(c => map.set(c.url, c));
+
+        const merged = Array.from(map.values());
+        if (currentLectureInfo) {
+          currentLectureInfo.captions = merged;
+          chrome.runtime.sendMessage({
+            type: 'UPDATE_LECTURE_DATA',
+            data: currentLectureInfo
+          }).catch(() => {});
+        }
+        sendResponse({ success: true, captions: merged });
+      })();
       return true;
     }
   });

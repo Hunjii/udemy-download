@@ -162,12 +162,17 @@
                 <span id="caption-status-text" style="font-size: 12px; font-weight: 600; color: #fff;">Đang tìm phụ đề...</span>
                 <span id="caption-sub-text" style="font-size: 10px; color: var(--text-muted);">Tự động khớp tên với video để xem offline</span>
               </div>
-              <button id="btn-download-caption" class="btn btn-secondary" disabled style="display: flex; align-items: center; gap: 6px; white-space: nowrap;">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
-                </svg>
-                Tải .SRT
-              </button>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <button id="btn-rescan-caption" class="btn btn-secondary hidden" title="Tìm lại phụ đề bài giảng" style="padding: 5px 8px; font-size: 11px; white-space: nowrap;">
+                  🔄 Tìm lại
+                </button>
+                <button id="btn-download-caption" class="btn btn-secondary" disabled style="display: flex; align-items: center; gap: 6px; white-space: nowrap;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                  </svg>
+                  Tải .SRT
+                </button>
+              </div>
             </div>
           </div>
 
