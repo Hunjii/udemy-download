@@ -75,7 +75,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         chrome.runtime.sendMessage({
           type: 'LECTURE_DATA_UPDATED',
           tabId,
-          data: message.data || null
+          data: message.data || null,
+          loadingLectureId: message.loadingLectureId || null
         }).catch(() => {});
       }
       sendResponse({ status: 'ok' });
@@ -88,9 +89,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const m3u8 = tabM3u8Urls.get(targetTabId);
 
         // Kiểm tra xem dữ liệu trong cache có bị cũ so với bài giảng hiện tại không
-        if (data && message.expectedLectureId && String(data.lectureId) !== String(message.expectedLectureId)) {
-          sendResponse({ success: false, data: null, isStale: true });
-          break;
+        if (message.expectedLectureId) {
+          if (!data || String(data.lectureId) !== String(message.expectedLectureId)) {
+            sendResponse({ success: false, data: null, isStale: true });
+            break;
+          }
         }
 
         sendResponse({ success: Boolean(data), data: data || null, latestM3u8: m3u8 || null });

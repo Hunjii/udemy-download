@@ -30,16 +30,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   initEngine2Controls();
   setupEventListeners();
   batchManager.init();
-
-  // Lắng nghe cập nhật bài giảng thời gian thực từ Content Script / Background
-  chrome.runtime.onMessage.addListener((message) => {
-    if (message.type === 'LECTURE_DATA_UPDATED' || message.type === 'UPDATE_LECTURE_DATA') {
-      if (message.data) {
-        currentLecture = message.data;
-        renderLecture(message.data);
-      }
-    }
-  });
 });
 
 // ============================================================================
@@ -287,12 +277,38 @@ function setupEventListeners() {
           detectCurrentLecture();
         }
       }).catch(() => {});
-    } else if (message.type === 'LECTURE_DATA_UPDATED') {
-      if (!targetUdemyTab || targetUdemyTab.id === message.tabId) {
-        if (message.data) {
-          renderLecture(message.data);
-        } else {
-          detectCurrentLecture();
+      return;
+    }
+
+    if (message.type === 'LECTURE_DATA_UPDATED' || message.type === 'UPDATE_LECTURE_DATA') {
+      if (message.tabId && targetUdemyTab && targetUdemyTab.id !== message.tabId) {
+        return;
+      }
+
+      if (message.data) {
+        // Kiểm tra xem ID bài giảng nhận được có khớp với URL của target tab không (tránh bài cũ)
+        if (targetUdemyTab?.url) {
+          const urlMatch = targetUdemyTab.url.match(/\/(?:lecture|quiz|practice)\/(\d+)/);
+          const activeUrlId = urlMatch ? urlMatch[1] : null;
+          if (activeUrlId && message.data.lectureId && String(message.data.lectureId) !== activeUrlId) {
+            console.log(`[Udemy Downloader Popup] Bỏ qua gói tin bài giảng ID=${message.data.lectureId} vì tab đang ở ID=${activeUrlId}`);
+            return;
+          }
+        }
+        currentLecture = message.data;
+        renderLecture(message.data);
+      } else {
+        // Đang chuyển bài: cập nhật targetUdemyTab URL và hiển thị trạng thái chờ nếu chưa có bài
+        if (targetUdemyTab?.id) {
+          chrome.tabs.get(targetUdemyTab.id).then(tab => {
+            if (tab?.url) targetUdemyTab = tab;
+          }).catch(() => {});
+        }
+        const loadingState = document.getElementById('loading-state');
+        const lectureContent = document.getElementById('lecture-content');
+        if (!currentLecture) {
+          loadingState?.classList.remove('hidden');
+          lectureContent?.classList.add('hidden');
         }
       }
     }
@@ -400,7 +416,7 @@ async function detectCurrentLecture() {
     }
   }
 
-  const urlMatch = activeTab.url?.match(/\/lecture\/(\d+)/);
+  const urlMatch = activeTab.url?.match(/\/(?:lecture|quiz|practice)\/(\d+)/);
   const expectedLectureId = urlMatch ? urlMatch[1] : null;
 
   // 1. Thử lấy từ Background cache (chỉ nhận nếu đúng bài giảng hiện tại)
@@ -414,18 +430,20 @@ async function detectCurrentLecture() {
     });
 
     if (bgResponse && bgResponse.success && bgResponse.data) {
-      renderLecture(bgResponse.data);
-      // Nếu dữ liệu cache chưa có phụ đề Tiếng Anh, kích hoạt quét ngầm từ Content Script
-      if (!findEnglishCaption(bgResponse.data.captions)) {
-        chrome.tabs.sendMessage(activeTab.id, { type: 'FETCH_CAPTIONS_FORCE' }, (res) => {
-          if (res && Array.isArray(res.captions) && res.captions.length > 0) {
-            bgResponse.data.captions = res.captions;
-            if (currentLecture) currentLecture.captions = res.captions;
-            renderEnglishCaption(res.captions);
-          }
-        });
+      if (!expectedLectureId || String(bgResponse.data.lectureId) === String(expectedLectureId)) {
+        renderLecture(bgResponse.data);
+        // Nếu dữ liệu cache chưa có phụ đề Tiếng Anh, kích hoạt quét ngầm từ Content Script
+        if (!findEnglishCaption(bgResponse.data.captions)) {
+          chrome.tabs.sendMessage(activeTab.id, { type: 'FETCH_CAPTIONS_FORCE' }, (res) => {
+            if (res && Array.isArray(res.captions) && res.captions.length > 0) {
+              bgResponse.data.captions = res.captions;
+              if (currentLecture) currentLecture.captions = res.captions;
+              renderEnglishCaption(res.captions);
+            }
+          });
+        }
+        return;
       }
-      return;
     }
   } catch (e) {}
 
@@ -438,17 +456,19 @@ async function detectCurrentLecture() {
     });
 
     if (csResponse && csResponse.success && csResponse.data) {
-      renderLecture(csResponse.data);
-      if (!findEnglishCaption(csResponse.data.captions)) {
-        chrome.tabs.sendMessage(activeTab.id, { type: 'FETCH_CAPTIONS_FORCE' }, (res) => {
-          if (res && Array.isArray(res.captions) && res.captions.length > 0) {
-            csResponse.data.captions = res.captions;
-            if (currentLecture) currentLecture.captions = res.captions;
-            renderEnglishCaption(res.captions);
-          }
-        });
+      if (!expectedLectureId || String(csResponse.data.lectureId) === String(expectedLectureId)) {
+        renderLecture(csResponse.data);
+        if (!findEnglishCaption(csResponse.data.captions)) {
+          chrome.tabs.sendMessage(activeTab.id, { type: 'FETCH_CAPTIONS_FORCE' }, (res) => {
+            if (res && Array.isArray(res.captions) && res.captions.length > 0) {
+              csResponse.data.captions = res.captions;
+              if (currentLecture) currentLecture.captions = res.captions;
+              renderEnglishCaption(res.captions);
+            }
+          });
+        }
+        return;
       }
-      return;
     }
 
     if (csResponse?.data?.isDrmProtected) {
@@ -1401,17 +1421,22 @@ const batchManager = {
     }
 
     if (res?.nextUrl && tab?.id) {
-      const fullUrl = res.nextUrl.startsWith('http') ? res.nextUrl : `https://www.udemy.com${res.nextUrl}`;
-      try {
-        await chrome.tabs.update(tab.id, { url: fullUrl });
-      } catch (e) {}
+      // Chờ 1.2s xem router SPA của Udemy đã tự chuyển URL chưa; chỉ cập nhật tabs nếu router chưa kích hoạt
+      await new Promise(r => setTimeout(r, 1200));
+      const updatedTab = await chrome.tabs.get(tab.id).catch(() => null);
+      if (updatedTab?.url && res.nextId && !updatedTab.url.includes(res.nextId)) {
+        const fullUrl = res.nextUrl.startsWith('http') ? res.nextUrl : `https://www.udemy.com${res.nextUrl}`;
+        try {
+          await chrome.tabs.update(tab.id, { url: fullUrl });
+        } catch (e) {}
+      }
     } else if (!res?.success) {
       alert(res?.error || 'Không tìm thấy bài giảng tiếp theo hoặc đã tới bài cuối cùng của khóa học!');
       this.stop(true);
       return;
     }
 
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise(r => setTimeout(r, 1000));
   }
 };
 

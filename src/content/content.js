@@ -14,6 +14,10 @@
   const curriculumLectureMap = new Map();
   const curriculumOrderList = [];
 
+  let currentEpoch = 0;
+  let scheduledFetchTimeout = null;
+  let lastMonitoredLectureId = null;
+
   function storeCurriculumResults(results) {
     if (!Array.isArray(results)) return;
     let currentChapter = null;
@@ -325,7 +329,7 @@
   function getCourseAndLectureInfoFromPage() {
     const pathname = window.location.pathname;
 
-    const lectureMatch = pathname.match(/\/lecture\/(\d+)/);
+    const lectureMatch = pathname.match(/\/(?:lecture|quiz|practice)\/(\d+)/);
     const lectureId = lectureMatch ? lectureMatch[1] : null;
 
     const courseSlugMatch = pathname.match(/\/course\/([^\/]+)/);
@@ -350,27 +354,64 @@
 
     let rawLectureTitle = '';
     let lectureIndex = 1;
+    let rawSectionTitle = '';
+    let sectionIndex = null;
 
-    const headerTitleEl = document.querySelector('[data-purpose="lecture-title"]') ||
-      document.querySelector('h2[data-purpose="title"]');
-    if (headerTitleEl && headerTitleEl.textContent.trim()) {
-      rawLectureTitle = headerTitleEl.textContent.trim();
+    // 1. Ưu tiên cao nhất: Dữ liệu chuẩn xác từ curriculumLectureMap (100% miễn nhiễm với lỗi DOM trễ)
+    if (lectureId && curriculumLectureMap.has(String(lectureId))) {
+      const curEntry = curriculumLectureMap.get(String(lectureId));
+      rawLectureTitle = curEntry.title || '';
+      lectureIndex = curEntry.index || 1;
+      if (curEntry.chapter) {
+        rawSectionTitle = curEntry.chapter.title || '';
+        sectionIndex = curEntry.chapter.index || null;
+      }
     }
 
+    // 2. Nếu chưa có trong Map, tìm phần tử DOM liên kết ĐÚNG với lectureId hiện tại
+    if (!rawLectureTitle && lectureId) {
+      const targetLink = document.querySelector(`a[href*="/lecture/${lectureId}"], a[href*="/quiz/${lectureId}"]`);
+      if (targetLink) {
+        const titleSpan = targetLink.querySelector('[data-purpose="item-title"], [class*="item-title"]');
+        if (titleSpan && titleSpan.textContent.trim()) {
+          rawLectureTitle = titleSpan.textContent.trim();
+        } else {
+          const clone = targetLink.cloneNode(true);
+          clone.querySelectorAll('.sr-only, [class*="sr-only"], [class*="metadata"], [class*="duration"], svg, span[aria-hidden="true"]').forEach(el => el.remove());
+          rawLectureTitle = clone.textContent.trim();
+        }
+      }
+    }
+
+    // 3. Fallback Header chỉ khi Header không chứa bài cũ
+    if (!rawLectureTitle) {
+      const headerTitleEl = document.querySelector('[data-purpose="lecture-title"]') ||
+        document.querySelector('h2[data-purpose="title"]');
+      if (headerTitleEl && headerTitleEl.textContent.trim()) {
+        rawLectureTitle = headerTitleEl.textContent.trim();
+      }
+    }
+
+    // 4. Fallback mục active trong danh mục bài giảng
     if (!rawLectureTitle) {
       const currentItemEl = document.querySelector('[class*="curriculum-item-link--is-current"]') ||
         document.querySelector('[aria-current="true"]') ||
         document.querySelector('[data-purpose="curriculum-item-title"]');
 
       if (currentItemEl) {
-        const titleSpan = currentItemEl.querySelector('[data-purpose="item-title"]') ||
-          currentItemEl.querySelector('[class*="item-title"]');
-        if (titleSpan) {
-          rawLectureTitle = titleSpan.textContent.trim();
-        } else {
-          const clone = currentItemEl.cloneNode(true);
-          clone.querySelectorAll('.sr-only, [class*="sr-only"], [class*="metadata"], [class*="duration"], svg, span[aria-hidden="true"]').forEach(el => el.remove());
-          rawLectureTitle = clone.textContent.trim();
+        // Kiểm tra xem currentItemEl có trỏ sang một ID khác không
+        const href = currentItemEl.getAttribute('href') || '';
+        const m = href.match(/\/(?:lecture|quiz)\/(\d+)/);
+        if (!m || !lectureId || m[1] === String(lectureId)) {
+          const titleSpan = currentItemEl.querySelector('[data-purpose="item-title"]') ||
+            currentItemEl.querySelector('[class*="item-title"]');
+          if (titleSpan) {
+            rawLectureTitle = titleSpan.textContent.trim();
+          } else {
+            const clone = currentItemEl.cloneNode(true);
+            clone.querySelectorAll('.sr-only, [class*="sr-only"], [class*="metadata"], [class*="duration"], svg, span[aria-hidden="true"]').forEach(el => el.remove());
+            rawLectureTitle = clone.textContent.trim();
+          }
         }
       }
     }
@@ -381,33 +422,13 @@
 
     const titleMeta = cleanLectureTitleInline(rawLectureTitle);
     const lectureTitle = titleMeta.title;
-    if (lectureId && curriculumLectureMap.has(String(lectureId))) {
-      lectureIndex = curriculumLectureMap.get(String(lectureId)).index;
-    } else if (titleMeta.index) {
+
+    if (titleMeta.index && (!lectureIndex || lectureIndex === 1)) {
       lectureIndex = titleMeta.index;
-    } else {
-      const curItem = document.querySelector('[class*="curriculum-item-link--is-current"]') ||
-        document.querySelector('[aria-current="true"]') ||
-        (lectureId ? document.querySelector(`a[href*="/lecture/${lectureId}"]`) : null);
-      if (curItem) {
-        const itemMeta = cleanLectureTitleInline(curItem.textContent || '');
-        if (itemMeta.index) {
-          lectureIndex = itemMeta.index;
-        } else {
-          const idxEl = curItem.querySelector('[class*="section-item-index"], [class*="item-index"], [data-purpose*="item-index"]');
-          if (idxEl) {
-            const parsed = parseInt(idxEl.textContent.trim(), 10);
-            if (!isNaN(parsed) && parsed > 0) lectureIndex = parsed;
-          }
-        }
-      }
     }
 
-    // Trích xuất tiêu đề phần cha (Section / Chapter)
-    let rawSectionTitle = '';
-    let sectionIndex = null;
-
-    if (lectureId && curriculumChapterMap.has(String(lectureId))) {
+    // Trích xuất tiêu đề phần cha (Section / Chapter) nếu chưa có từ curriculumChapterMap
+    if (lectureId && curriculumChapterMap.has(String(lectureId)) && !rawSectionTitle) {
       const ch = curriculumChapterMap.get(String(lectureId));
       rawSectionTitle = ch.title;
       sectionIndex = ch.index;
@@ -567,8 +588,21 @@
   // --------------------------------------------------------------------------
   // 9. Xử lý Payload bài giảng (Hợp nhất 5 nguồn phụ đề & Ưu tiên 1080p HLS)
   // --------------------------------------------------------------------------
-  async function processLecturePayload(payload, forcedM3u8Url = null) {
+  async function processLecturePayload(payload, forcedM3u8Url = null, requestEpoch = null) {
+    if (!payload || typeof payload !== 'object') return null;
+
+    if (requestEpoch !== null && requestEpoch !== currentEpoch) {
+      console.log(`[Udemy Downloader] Bỏ qua gói tin vì epoch đã cũ (${requestEpoch} vs ${currentEpoch})`);
+      return null;
+    }
+
     const pageInfo = getCourseAndLectureInfoFromPage();
+    const payloadId = payload.id ? String(payload.id) : null;
+    if (pageInfo.lectureId && payloadId && String(pageInfo.lectureId) !== payloadId) {
+      console.log(`[Udemy Downloader] Bỏ qua gói tin bài giảng khác ID=${payloadId} (trang hiện tại: ${pageInfo.lectureId})`);
+      return null;
+    }
+
     const asset = payload.asset || {};
     const streamUrls = asset.stream_urls || payload.stream_urls || {};
 
@@ -748,6 +782,17 @@
       timestamp: Date.now()
     };
 
+    // Kiểm tra lần cuối trước khi cập nhật state: đảm bảo trong lúc xử lý async URL không bị chuyển sang bài khác
+    const latestPage = getCourseAndLectureInfoFromPage();
+    if (latestPage.lectureId && processedData.lectureId && String(latestPage.lectureId) !== String(processedData.lectureId)) {
+      console.log(`[Udemy Downloader] Hủy gán bài giảng: trang đã chuyển sang ID=${latestPage.lectureId} trong khi đang xử lý ID=${processedData.lectureId}`);
+      return null;
+    }
+    if (requestEpoch !== null && requestEpoch !== currentEpoch) {
+      console.log(`[Udemy Downloader] Hủy gán bài giảng: epoch đã lỗi thời (${requestEpoch} vs ${currentEpoch})`);
+      return null;
+    }
+
     currentLectureInfo = processedData;
 
     chrome.runtime.sendMessage({
@@ -764,6 +809,9 @@
   async function updateStreamsWithM3u8(m3u8Url) {
     if (!m3u8Url) return;
 
+    const pageInfo = getCourseAndLectureInfoFromPage();
+    if (!pageInfo.lectureId) return;
+
     let targetUrl = m3u8Url;
     if (isChildPlaylistUrl(m3u8Url)) {
       const derived = deriveMasterPlaylistUrl(m3u8Url);
@@ -773,11 +821,15 @@
     const hlsData = await resolveHlsData(targetUrl);
     if (!hlsData || !hlsData.streams || hlsData.streams.length === 0) return;
 
-    if (!currentLectureInfo) {
-      await fetchLectureApiDirectly();
+    const thisEpoch = currentEpoch;
+    if (!currentLectureInfo || String(currentLectureInfo.lectureId) !== String(pageInfo.lectureId)) {
+      await fetchLectureApiDirectly(thisEpoch);
     }
 
-    if (currentLectureInfo) {
+    if (currentEpoch !== thisEpoch) return;
+
+    const latestPage = getCourseAndLectureInfoFromPage();
+    if (currentLectureInfo && String(currentLectureInfo.lectureId) === String(latestPage.lectureId)) {
       const currentBestRes = currentLectureInfo.bestQuality?.resolution || 0;
       const newBestRes = hlsData.streams[0]?.resolution || 0;
 
@@ -821,13 +873,67 @@
   }
 
   // --------------------------------------------------------------------------
+  // 9.2 Hàm điều phối chuyển đổi bài giảng tập trung (Chống giật / Loạn trạng thái)
+  // --------------------------------------------------------------------------
+  function handleLectureTransition(newLectureId) {
+    if (!newLectureId) return;
+
+    // Nếu đã là bài đang xem và dữ liệu đã hoàn tất chính xác cho bài này, không reset
+    if (currentLectureInfo && String(currentLectureInfo.lectureId) === String(newLectureId)) {
+      return;
+    }
+
+    // Nếu vừa kích hoạt transition cho đúng ID này và đang chờ fetch hoàn tất
+    if (lastMonitoredLectureId === String(newLectureId) && scheduledFetchTimeout) {
+      return;
+    }
+
+    currentEpoch++;
+    const thisEpoch = currentEpoch;
+    lastMonitoredLectureId = String(newLectureId);
+
+    console.log(`[Udemy Downloader] Kích hoạt chuyển bài mới ID=${newLectureId} (Epoch ${thisEpoch})`);
+
+    // Reset sạch dữ liệu bài cũ ngay lập tức
+    currentLectureInfo = null;
+    interceptedMasterM3u8 = null;
+    interceptedCaptionsList.length = 0;
+
+    if (scheduledFetchTimeout) {
+      clearTimeout(scheduledFetchTimeout);
+      scheduledFetchTimeout = null;
+    }
+
+    // Báo Popup và Background xóa sạch cache bài cũ, đánh dấu đang tải bài mới
+    chrome.runtime.sendMessage({
+      type: 'UPDATE_LECTURE_DATA',
+      data: null,
+      loadingLectureId: newLectureId
+    }).catch(() => {});
+
+    // Kích hoạt nạp API chính thức cho bài mới sau 300ms
+    scheduledFetchTimeout = setTimeout(() => {
+      scheduledFetchTimeout = null;
+      if (currentEpoch === thisEpoch) {
+        fetchLectureApiDirectly(thisEpoch);
+      }
+    }, 300);
+  }
+
+  // --------------------------------------------------------------------------
   // 10. Lắng nghe gói tin từ Injected Script
   // --------------------------------------------------------------------------
   window.addEventListener('message', async (event) => {
     if (event.source !== window) return;
 
     if (event.data?.type === 'UDEMY_LECTURE_INTERCEPTED') {
-      await processLecturePayload(event.data.payload);
+      const targetLecId = event.data.lectureId || (event.data.payload?.id ? String(event.data.payload.id) : null);
+      const pageInfo = getCourseAndLectureInfoFromPage();
+      if (pageInfo.lectureId && targetLecId && String(pageInfo.lectureId) !== targetLecId) {
+        console.log(`[Udemy Downloader] Bỏ qua gói tin UDEMY_LECTURE_INTERCEPTED vì ID=${targetLecId} khác trang hiện tại ${pageInfo.lectureId}`);
+        return;
+      }
+      await processLecturePayload(event.data.payload, null, currentEpoch);
     } else if (event.data?.type === 'UDEMY_CURRICULUM_INTERCEPTED') {
       const results = event.data.results || [];
       storeCurriculumResults(results);
@@ -911,17 +1017,9 @@
       }
     } else if (event.data?.type === 'UDEMY_URL_CHANGED') {
       const pageInfo = getCourseAndLectureInfoFromPage();
-      if (pageInfo.lectureId && String(pageInfo.lectureId) !== String(currentLectureInfo?.lectureId)) {
-        console.log('[Udemy Downloader] Phát hiện chuyển bài giảng sang ID:', pageInfo.lectureId);
-        currentLectureInfo = null;
-        interceptedMasterM3u8 = null;
-        interceptedCaptionsList.length = 0;
-        chrome.runtime.sendMessage({
-          type: 'UPDATE_LECTURE_DATA',
-          data: null
-        }).catch(() => {});
-        setTimeout(fetchLectureApiDirectly, 200);
-        setTimeout(fetchLectureApiDirectly, 800);
+      const newLecId = event.data.lectureId || pageInfo.lectureId;
+      if (newLecId) {
+        handleLectureTransition(newLecId);
       }
     }
   });
@@ -1000,7 +1098,8 @@
   // --------------------------------------------------------------------------
   // 12. Fallback chủ động gọi API khi người dùng mở Popup
   // --------------------------------------------------------------------------
-  async function fetchLectureApiDirectly() {
+  async function fetchLectureApiDirectly(requestEpoch = null) {
+    if (requestEpoch !== null && requestEpoch !== currentEpoch) return null;
     const pageInfo = getCourseAndLectureInfoFromPage();
     if (!pageInfo.lectureId) return null;
 
@@ -1025,13 +1124,16 @@
       });
 
       if (res.ok) {
+        if (requestEpoch !== null && requestEpoch !== currentEpoch) return null;
         const data = await res.json();
-        const processed = await processLecturePayload(data);
+        const processed = await processLecturePayload(data, null, requestEpoch);
         if (processed && (!processed.captions || processed.captions.length === 0)) {
           const directCaps = await fetchCaptionsDirectly(courseId, pageInfo.lectureId);
-          if (directCaps.length > 0) {
+          if (directCaps.length > 0 && (requestEpoch === null || requestEpoch === currentEpoch)) {
             processed.captions = directCaps;
-            if (currentLectureInfo) currentLectureInfo.captions = directCaps;
+            if (currentLectureInfo && String(currentLectureInfo.lectureId) === String(pageInfo.lectureId)) {
+              currentLectureInfo.captions = directCaps;
+            }
           }
         }
         return processed;
@@ -1066,40 +1168,43 @@
     if (message.type === 'GET_CURRENT_LECTURE_FROM_PAGE') {
       const pageInfo = getCourseAndLectureInfoFromPage();
 
-      // Nếu bài giảng hiện tại trong URL khác với bài giảng trong cache, xóa cache cũ ngay lập tức!
-      if (currentLectureInfo && pageInfo.lectureId && String(currentLectureInfo.lectureId) !== String(pageInfo.lectureId)) {
-        currentLectureInfo = null;
-        interceptedMasterM3u8 = null;
-        interceptedCaptionsList.length = 0;
+      // Nếu bài giảng hiện tại trong URL khác với bài giảng trong cache, kích hoạt chuyển bài
+      if (pageInfo.lectureId && (!currentLectureInfo || String(currentLectureInfo.lectureId) !== String(pageInfo.lectureId))) {
+        handleLectureTransition(pageInfo.lectureId);
       }
 
       // Chỉ trả lời ngay nếu ĐÃ CÓ cả luồng phát VÀ phụ đề cho ĐÚNG bài giảng hiện tại, và đã có luồng HLS/1080p
+      const isExactLecture = currentLectureInfo && pageInfo.lectureId && String(currentLectureInfo.lectureId) === String(pageInfo.lectureId);
       const hasHighRes = currentLectureInfo?.streams?.some(s => s.resolution >= 1080 || s.type === 'hls');
-      if (currentLectureInfo && currentLectureInfo.streams?.length > 0 && currentLectureInfo.captions?.length > 0 && hasHighRes) {
+      if (isExactLecture && currentLectureInfo.streams?.length > 0 && currentLectureInfo.captions?.length > 0 && hasHighRes) {
         sendResponse({ success: true, data: currentLectureInfo });
         return true;
       }
 
-      window.postMessage({ type: 'UDEMY_REQUEST_LATEST_DATA' }, '*');
+      window.postMessage({ type: 'UDEMY_REQUEST_LATEST_DATA', expectedLectureId: pageInfo.lectureId }, '*');
 
-      fetchLectureApiDirectly().then(async (data) => {
-        const targetData = data || currentLectureInfo;
+      const thisEpoch = currentEpoch;
+      fetchLectureApiDirectly(thisEpoch).then(async (data) => {
+        if (currentEpoch !== thisEpoch) return;
+        const targetData = (data && String(data.lectureId) === String(pageInfo.lectureId)) ? data :
+          (currentLectureInfo && String(currentLectureInfo.lectureId) === String(pageInfo.lectureId) ? currentLectureInfo : null);
+
         if (targetData && (!targetData.captions || targetData.captions.length === 0)) {
-          const pageInfo = getCourseAndLectureInfoFromPage();
           const caps = await fetchCaptionsDirectly(pageInfo.courseId || cachedCourseId, pageInfo.lectureId);
-          if (caps.length > 0) {
+          if (caps.length > 0 && currentEpoch === thisEpoch) {
             targetData.captions = caps;
-            if (currentLectureInfo) currentLectureInfo.captions = caps;
+            if (currentLectureInfo && String(currentLectureInfo.lectureId) === String(pageInfo.lectureId)) {
+              currentLectureInfo.captions = caps;
+            }
           }
         }
 
         if (targetData) {
           sendResponse({ success: true, data: targetData });
         } else {
-          const pageInfo = getCourseAndLectureInfoFromPage();
           sendResponse({
-            success: Boolean(currentLectureInfo),
-            data: currentLectureInfo,
+            success: Boolean(currentLectureInfo && String(currentLectureInfo.lectureId) === String(pageInfo.lectureId)),
+            data: (currentLectureInfo && String(currentLectureInfo.lectureId) === String(pageInfo.lectureId)) ? currentLectureInfo : null,
             pageInfo,
             error: 'Chưa bắt được luồng phát video. Vui lòng bấm Phát (Play) video bài giảng.'
           });
@@ -1403,26 +1508,18 @@
 
 
 
-  setTimeout(fetchLectureApiDirectly, 1500);
+  setTimeout(() => {
+    const pInfo = getCourseAndLectureInfoFromPage();
+    if (pInfo.lectureId && !currentLectureInfo) {
+      handleLectureTransition(pInfo.lectureId);
+    }
+  }, 1000);
 
-  // Định kỳ giám sát URL để phát hiện chuyển bài trong SPA
-  let lastMonitoredLectureId = null;
+  // Định kỳ giám sát URL để phát hiện chuyển bài trong SPA (dùng chung handleLectureTransition tập trung)
   setInterval(() => {
     const pInfo = getCourseAndLectureInfoFromPage();
     if (pInfo.lectureId && pInfo.lectureId !== lastMonitoredLectureId) {
-      lastMonitoredLectureId = pInfo.lectureId;
-      if (currentLectureInfo && String(currentLectureInfo.lectureId) !== String(pInfo.lectureId)) {
-        console.log('[Udemy Downloader] Định kỳ phát hiện bài mới:', pInfo.lectureId);
-        currentLectureInfo = null;
-        interceptedMasterM3u8 = null;
-        interceptedCaptionsList.length = 0;
-        chrome.runtime.sendMessage({
-          type: 'UPDATE_LECTURE_DATA',
-          data: null
-        }).catch(() => {});
-        setTimeout(fetchLectureApiDirectly, 200);
-        setTimeout(fetchLectureApiDirectly, 800);
-      }
+      handleLectureTransition(pInfo.lectureId);
     }
-  }, 1000);
+  }, 800);
 })();

@@ -4,6 +4,6 @@
   "description": "Chrome/Edge Dev Extension tải video bài giảng Udemy chất lượng cao nhất",
   "type": "module",
   "scripts": {
-    "test": "node test/test_utils.mjs"
+    "test": "node test/test_utils.mjs && node test/test_hls.mjs && node test/test_transition.mjs"
   }
 }

@@ -13,6 +13,22 @@
   window.__UDEMY_LATEST_M3U8_URL__ = null;
   window.__UDEMY_INTERCEPTED_CAPTIONS__ = [];
   window.__UDEMY_INTERCEPTED_CAPTIONS_LIST__ = [];
+  let lastUrlChangeTime = 0;
+
+  function getCurrentPageLectureId() {
+    try {
+      const m = window.location.pathname.match(/\/(?:lecture|quiz|practice)\/(\d+)/);
+      return m ? m[1] : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function extractLectureIdFromUrl(url) {
+    if (!url || typeof url !== 'string') return null;
+    const m = url.match(/\/(?:lectures|quiz|practice)\/(\d+)/);
+    return m ? m[1] : null;
+  }
 
   function notifyLectureData(data, sourceUrl = '') {
     try {
@@ -21,8 +37,18 @@
       const hasAsset = data.asset || data.stream_urls || data.media_sources;
       if (!hasAsset && !data.supplementary_assets && !data.captions) return;
 
+      const dataId = data.id ? String(data.id) : extractLectureIdFromUrl(sourceUrl);
+      const curPageId = getCurrentPageLectureId();
+
+      // Nếu bài giảng này rõ ràng khác với bài giảng trên URL hiện tại (ví dụ prefetch hoặc request cũ), bỏ qua lưu cache chính
+      if (dataId && curPageId && dataId !== curPageId) {
+        console.log(`[Udemy Downloader Injected] Bỏ qua gói tin ID=${dataId} do trang đang ở ID=${curPageId}`);
+        return;
+      }
+
       window.__UDEMY_LATEST_LECTURE_DATA__ = {
         data,
+        lectureId: dataId,
         sourceUrl,
         timestamp: Date.now()
       };
@@ -30,6 +56,7 @@
       window.postMessage({
         type: 'UDEMY_LECTURE_INTERCEPTED',
         payload: data,
+        lectureId: dataId,
         sourceUrl
       }, '*');
     } catch (e) {
@@ -190,12 +217,20 @@
   // --------------------------------------------------------------------------
   window.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'UDEMY_REQUEST_LATEST_DATA') {
+      const curId = getCurrentPageLectureId();
+      const expectedId = event.data.expectedLectureId || curId;
       if (window.__UDEMY_LATEST_LECTURE_DATA__) {
-        window.postMessage({
-          type: 'UDEMY_LECTURE_INTERCEPTED',
-          payload: window.__UDEMY_LATEST_LECTURE_DATA__.data,
-          sourceUrl: window.__UDEMY_LATEST_LECTURE_DATA__.sourceUrl
-        }, '*');
+        const dataId = window.__UDEMY_LATEST_LECTURE_DATA__.lectureId ||
+          (window.__UDEMY_LATEST_LECTURE_DATA__.data?.id ? String(window.__UDEMY_LATEST_LECTURE_DATA__.data.id) : null);
+        // Chỉ gửi lại dữ liệu nếu khớp với bài giảng đang xem
+        if (!expectedId || !dataId || dataId === expectedId) {
+          window.postMessage({
+            type: 'UDEMY_LECTURE_INTERCEPTED',
+            payload: window.__UDEMY_LATEST_LECTURE_DATA__.data,
+            lectureId: dataId,
+            sourceUrl: window.__UDEMY_LATEST_LECTURE_DATA__.sourceUrl
+          }, '*');
+        }
       }
       if (window.__UDEMY_LATEST_M3U8_URL__) {
         window.postMessage({
@@ -222,6 +257,9 @@
   // 4. Định kỳ kiểm tra thẻ <video> và <track>
   // --------------------------------------------------------------------------
   setInterval(() => {
+    // Nếu trang vừa chuyển bài trong vòng 2.5 giây, DOM có thể chưa cập nhật xong video mới -> Không quét tránh nhận nhầm video bài cũ!
+    if (Date.now() - lastUrlChangeTime < 2500) return;
+
     const video = document.querySelector('video');
     if (video) {
       if (video.src && video.src.includes('.m3u8')) {
@@ -241,14 +279,17 @@
   // 5. Theo dõi chuyển bài giảng trong SPA (pushState, replaceState, popstate)
   // --------------------------------------------------------------------------
   function handleUrlChange() {
+    lastUrlChangeTime = Date.now();
     window.__UDEMY_LATEST_LECTURE_DATA__ = null;
     window.__UDEMY_LATEST_M3U8_URL__ = null;
     window.__UDEMY_INTERCEPTED_CAPTIONS__ = [];
     window.__UDEMY_INTERCEPTED_CAPTIONS_LIST__ = [];
 
+    const currentLectureId = getCurrentPageLectureId();
     window.postMessage({
       type: 'UDEMY_URL_CHANGED',
       url: window.location.href,
+      lectureId: currentLectureId,
       timestamp: Date.now()
     }, '*');
   }
