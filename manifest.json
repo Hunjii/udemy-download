@@ -16,7 +16,8 @@
     "scripting",
     "tabCapture",
     "webRequest",
-    "sidePanel"
+    "sidePanel",
+    "cookies"
   ],
   "host_permissions": [
     "*://*.udemy.com/*",

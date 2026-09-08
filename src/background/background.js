@@ -104,11 +104,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       {
         const params = new URLSearchParams(message.payload);
         const url = chrome.runtime.getURL(`src/downloader/downloader.html?${params.toString()}`);
+        const isBatch = message.payload?.mode === 'batch';
         chrome.windows.create({
           url,
           type: 'popup',
-          width: 520,
-          height: 480
+          width: isBatch ? 580 : 520,
+          height: isBatch ? 680 : 480
         }, (win) => {
           sendResponse({ success: true, windowId: win.id });
         });

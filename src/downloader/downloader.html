@@ -25,6 +25,21 @@
 
     <!-- Main Container -->
     <main class="dl-content">
+      <!-- Batch Overall Progress (Chỉ hiện khi ở chế độ tải hàng loạt) -->
+      <div id="batch-overall-section" class="batch-overall-card hidden">
+        <div class="batch-overall-header">
+          <span class="batch-title">Tiến trình hàng đợi tự động (API Queue)</span>
+          <span id="batch-counter-badge" class="batch-counter-badge">Bài 1 / 5</span>
+        </div>
+        <div class="batch-progress-bar-track">
+          <div id="batch-overall-fill" class="batch-progress-bar-fill" style="width: 0%;"></div>
+        </div>
+        <div class="batch-sub-stats">
+          <span id="batch-completed-count">Đã hoàn tất: 0 / 0 bài</span>
+          <span id="batch-sub-count">Phụ đề EN: 0</span>
+        </div>
+      </div>
+
       <!-- Course & Lecture info -->
       <div class="info-card">
         <span id="course-name" class="course-name">Đang nạp tên khóa học...</span>
@@ -63,6 +78,17 @@
         </div>
       </div>
 
+      <!-- Batch Queue List (Danh sách các bài trong đợt tải) -->
+      <div id="batch-queue-section" class="batch-queue-card hidden">
+        <div class="batch-queue-header">
+          <span>Hàng đợi bài giảng</span>
+          <span id="batch-queue-total" class="tag-meta">0 bài</span>
+        </div>
+        <div id="batch-queue-list" class="batch-queue-list">
+          <!-- Sẽ được chèn động bởi JavaScript -->
+        </div>
+      </div>
+
       <!-- Permission Request Box for Custom Disk Folder -->
       <div id="fs-permission-box" class="fs-permission-box hidden">
         <div class="fs-info-row">
@@ -72,17 +98,52 @@
             </svg>
           </div>
           <div class="fs-text">
-            <span class="fs-title">Đã ghép xong video!</span>
-            <span class="fs-desc">Bấm nút để lưu vào thư mục ổ đĩa: <strong id="fs-target-name">...</strong></span>
+            <span class="fs-title">Cần cấp quyền lưu thư mục ổ đĩa</span>
+            <span class="fs-desc">Bấm nút để cấp quyền lưu tự động vào: <strong id="fs-target-name">...</strong></span>
           </div>
         </div>
         <div class="fs-actions">
           <button id="btn-grant-save" class="btn btn-save-fs">
-            💾 Lưu vào thư mục ổ đĩa
+            💾 Cấp quyền lưu thư mục
           </button>
           <button id="btn-fallback-download" class="btn btn-ghost-light">
             Hoặc lưu vào Downloads
           </button>
+        </div>
+      </div>
+
+      <!-- Prompt Modal: Thiếu phụ đề Tiếng Anh -->
+      <div id="batch-sub-prompt-modal" class="prompt-modal hidden">
+        <div class="prompt-card">
+          <div class="prompt-icon warning">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2L1 21h22L12 2zm1 14h-2v-2h2v2zm0-4h-2V8h2v4z"/>
+            </svg>
+          </div>
+          <h3 id="prompt-sub-title">Không có phụ đề Tiếng Anh</h3>
+          <p id="prompt-sub-desc">Bài giảng này hiện không có phụ đề Tiếng Anh. Bạn muốn tiếp tục tải video hay dừng chuỗi tải?</p>
+          <div class="prompt-actions">
+            <button id="btn-prompt-skip-sub" class="btn btn-warning">⏭️ Bỏ qua phụ đề & Tải video</button>
+            <button id="btn-prompt-abort-sub" class="btn btn-ghost-light">🛑 Hủy chuỗi tải</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Prompt Modal: Lỗi tải sau 3 lần thử lại -->
+      <div id="batch-error-prompt-modal" class="prompt-modal hidden">
+        <div class="prompt-card">
+          <div class="prompt-icon danger">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+            </svg>
+          </div>
+          <h3 id="prompt-err-title">Lỗi tải bài giảng sau 3 lần thử</h3>
+          <p id="prompt-err-desc">Đã xảy ra lỗi khi tải phân đoạn video.</p>
+          <div class="prompt-actions">
+            <button id="btn-prompt-retry" class="btn btn-primary">🔄 Thử lại bài này</button>
+            <button id="btn-prompt-skip-err" class="btn btn-warning">⏭️ Bỏ qua & Tải bài tiếp</button>
+            <button id="btn-prompt-abort-err" class="btn btn-ghost-light">🛑 Dừng chuỗi tải</button>
+          </div>
         </div>
       </div>
 
@@ -93,12 +154,13 @@
             <polyline points="20 6 9 17 4 12"/>
           </svg>
         </div>
-        <h3>Tải và ghép MP4 thành công!</h3>
+        <h3 id="finish-title">Tải và ghép MP4 thành công!</h3>
         <p id="finish-desc" class="finish-desc">File đã được lưu vào thư mục cấu hình của bạn.</p>
       </div>
 
       <!-- Actions -->
       <div class="actions-row">
+        <button id="btn-pause-batch" class="btn btn-secondary hidden">⏸️ Tạm dừng</button>
         <button id="btn-cancel" class="btn btn-danger">Hủy tải</button>
         <button id="btn-close" class="btn btn-primary hidden">Đóng cửa sổ</button>
       </div>

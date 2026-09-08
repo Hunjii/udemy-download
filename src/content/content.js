@@ -4,6 +4,9 @@
  */
 
 (function () {
+  if (window.__udemyDownloaderContentInjected) return;
+  window.__udemyDownloaderContentInjected = true;
+
   console.log('[Udemy Downloader] Content script đã khởi tạo thành công!');
 
   let currentLectureInfo = null;
@@ -878,13 +881,8 @@
   function handleLectureTransition(newLectureId) {
     if (!newLectureId) return;
 
-    // Nếu đã là bài đang xem và dữ liệu đã hoàn tất chính xác cho bài này, không reset
-    if (currentLectureInfo && String(currentLectureInfo.lectureId) === String(newLectureId)) {
-      return;
-    }
-
-    // Nếu vừa kích hoạt transition cho đúng ID này và đang chờ fetch hoàn tất
-    if (lastMonitoredLectureId === String(newLectureId) && scheduledFetchTimeout) {
+    // Nếu ĐÃ LÀ bài đang theo dõi (cùng ID), tuyệt đối không reset hay tăng epoch
+    if (lastMonitoredLectureId === String(newLectureId)) {
       return;
     }
 
@@ -1165,51 +1163,95 @@
       return true;
     }
 
+    if (message.type === 'GET_COURSE_AND_LECTURE_INFO') {
+      const pageInfo = getCourseAndLectureInfoFromPage();
+      if (!pageInfo.courseId && pageInfo.courseSlug) {
+        resolveCourseId(pageInfo.courseSlug).then((cid) => {
+          pageInfo.courseId = cid;
+          sendResponse({ success: true, pageInfo });
+        }).catch(() => {
+          sendResponse({ success: true, pageInfo });
+        });
+        return true;
+      }
+      sendResponse({ success: true, pageInfo });
+      return true;
+    }
+
+    if (message.type === 'API_FETCH') {
+      fetch(message.url, {
+        credentials: 'include',
+        headers: { 'Accept': 'application/json, text/plain, */*' }
+      })
+        .then(async (r) => {
+          const text = await r.text();
+          let data = text;
+          try { data = JSON.parse(text); } catch (e) {}
+          sendResponse({ ok: r.ok, status: r.status, data });
+        })
+        .catch((err) => {
+          sendResponse({ ok: false, error: err.message });
+        });
+      return true;
+    }
+
     if (message.type === 'GET_CURRENT_LECTURE_FROM_PAGE') {
       const pageInfo = getCourseAndLectureInfoFromPage();
 
-      // Nếu bài giảng hiện tại trong URL khác với bài giảng trong cache, kích hoạt chuyển bài
-      if (pageInfo.lectureId && (!currentLectureInfo || String(currentLectureInfo.lectureId) !== String(pageInfo.lectureId))) {
+      // Chỉ kích hoạt transition nếu bài giảng thực sự khác với bài đang theo dõi
+      if (pageInfo.lectureId && lastMonitoredLectureId !== String(pageInfo.lectureId)) {
         handleLectureTransition(pageInfo.lectureId);
       }
 
-      // Chỉ trả lời ngay nếu ĐÃ CÓ cả luồng phát VÀ phụ đề cho ĐÚNG bài giảng hiện tại, và đã có luồng HLS/1080p
+      // 1. Trả lời ngay nếu đã có thông tin bài giảng hiện tại (có streams)
       const isExactLecture = currentLectureInfo && pageInfo.lectureId && String(currentLectureInfo.lectureId) === String(pageInfo.lectureId);
-      const hasHighRes = currentLectureInfo?.streams?.some(s => s.resolution >= 1080 || s.type === 'hls');
-      if (isExactLecture && currentLectureInfo.streams?.length > 0 && currentLectureInfo.captions?.length > 0 && hasHighRes) {
-        sendResponse({ success: true, data: currentLectureInfo });
+      if (isExactLecture && currentLectureInfo.streams && currentLectureInfo.streams.length > 0) {
+        sendResponse({ success: true, data: currentLectureInfo, pageInfo });
         return true;
       }
 
+      // 2. Yêu cầu Injected script phát lại cache
       window.postMessage({ type: 'UDEMY_REQUEST_LATEST_DATA', expectedLectureId: pageInfo.lectureId }, '*');
 
+      // 3. Gọi nạp API trực tiếp và LUÔN LUÔN gọi sendResponse (không bao giờ drop làm popup treo loading)
       const thisEpoch = currentEpoch;
-      fetchLectureApiDirectly(thisEpoch).then(async (data) => {
-        if (currentEpoch !== thisEpoch) return;
-        const targetData = (data && String(data.lectureId) === String(pageInfo.lectureId)) ? data :
-          (currentLectureInfo && String(currentLectureInfo.lectureId) === String(pageInfo.lectureId) ? currentLectureInfo : null);
+      fetchLectureApiDirectly(thisEpoch)
+        .then(async (data) => {
+          const targetData = (data && String(data.lectureId) === String(pageInfo.lectureId)) ? data :
+            (currentLectureInfo && String(currentLectureInfo.lectureId) === String(pageInfo.lectureId) ? currentLectureInfo : null);
 
-        if (targetData && (!targetData.captions || targetData.captions.length === 0)) {
-          const caps = await fetchCaptionsDirectly(pageInfo.courseId || cachedCourseId, pageInfo.lectureId);
-          if (caps.length > 0 && currentEpoch === thisEpoch) {
-            targetData.captions = caps;
-            if (currentLectureInfo && String(currentLectureInfo.lectureId) === String(pageInfo.lectureId)) {
-              currentLectureInfo.captions = caps;
-            }
+          if (targetData && (!targetData.captions || targetData.captions.length === 0)) {
+            try {
+              const caps = await fetchCaptionsDirectly(pageInfo.courseId || cachedCourseId, pageInfo.lectureId);
+              if (caps && caps.length > 0) {
+                targetData.captions = caps;
+                if (currentLectureInfo && String(currentLectureInfo.lectureId) === String(pageInfo.lectureId)) {
+                  currentLectureInfo.captions = caps;
+                }
+              }
+            } catch (e) {}
           }
-        }
 
-        if (targetData) {
-          sendResponse({ success: true, data: targetData });
-        } else {
+          if (targetData) {
+            sendResponse({ success: true, data: targetData, pageInfo });
+          } else {
+            sendResponse({
+              success: Boolean(currentLectureInfo && String(currentLectureInfo.lectureId) === String(pageInfo.lectureId)),
+              data: (currentLectureInfo && String(currentLectureInfo.lectureId) === String(pageInfo.lectureId)) ? currentLectureInfo : null,
+              pageInfo,
+              error: 'Chưa bắt được luồng phát video. Vui lòng bấm Phát (Play) video bài giảng.'
+            });
+          }
+        })
+        .catch((err) => {
+          console.warn('[Udemy Downloader] Lỗi GET_CURRENT_LECTURE_FROM_PAGE:', err);
           sendResponse({
-            success: Boolean(currentLectureInfo && String(currentLectureInfo.lectureId) === String(pageInfo.lectureId)),
+            success: false,
             data: (currentLectureInfo && String(currentLectureInfo.lectureId) === String(pageInfo.lectureId)) ? currentLectureInfo : null,
             pageInfo,
-            error: 'Chưa bắt được luồng phát video. Vui lòng bấm Phát (Play) video bài giảng.'
+            error: err.message
           });
-        }
-      });
+        });
 
       return true;
     }

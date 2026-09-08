@@ -88,8 +88,8 @@ body {
   padding: 16px 20px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  justify-content: space-between;
+  gap: 14px;
+  overflow-y: auto;
 }
 
 .info-card {
@@ -377,6 +377,306 @@ body {
 
 .btn-primary:hover {
   background-color: #8710d8;
+}
+
+.btn-secondary {
+  background-color: var(--bg-card);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+}
+
+.btn-secondary:hover {
+  background-color: #383b40;
+}
+
+.btn-warning {
+  background-color: #d97706;
+  color: #fff;
+  border: 1px solid #b45309;
+}
+
+.btn-warning:hover {
+  background-color: #b45309;
+}
+
+/* ==========================================================================
+   Batch Queue Mode Styles
+   ========================================================================== */
+.batch-overall-card {
+  background: linear-gradient(180deg, rgba(164, 53, 240, 0.12), rgba(31, 33, 36, 0.6));
+  border: 1px solid rgba(164, 53, 240, 0.3);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.batch-overall-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.batch-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent-purple-light);
+  letter-spacing: 0.2px;
+}
+
+.batch-counter-badge {
+  font-size: 11px;
+  font-weight: 700;
+  background-color: var(--accent-purple);
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.batch-progress-bar-track {
+  height: 6px;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.batch-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-purple), #ec4899);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.batch-sub-stats {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Queue List */
+.batch-queue-card {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.batch-queue-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.batch-queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 170px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.batch-queue-list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.batch-queue-list::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+.queue-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.queue-item.active {
+  border-color: var(--accent-purple);
+  background: rgba(164, 53, 240, 0.1);
+}
+
+.queue-item.done {
+  border-color: rgba(16, 185, 129, 0.3);
+  opacity: 0.85;
+}
+
+.queue-item.error {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.queue-item.skipped {
+  opacity: 0.6;
+}
+
+.queue-item-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.queue-index {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  width: 24px;
+  flex-shrink: 0;
+}
+
+.queue-item-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.queue-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.queue-chapter {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.queue-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+
+.queue-badge.waiting {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: var(--text-muted);
+}
+
+.queue-badge.active {
+  background-color: rgba(164, 53, 240, 0.25);
+  color: var(--accent-purple-light);
+  animation: pulse 1.5s infinite;
+}
+
+.queue-badge.done {
+  background-color: rgba(16, 185, 129, 0.2);
+  color: var(--accent-green);
+}
+
+.queue-badge.error {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+}
+
+.queue-badge.skipped {
+  background-color: rgba(156, 163, 175, 0.2);
+  color: #9ca3af;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* ==========================================================================
+   Prompt Modals
+   ========================================================================== */
+.prompt-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(10, 10, 12, 0.85);
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.prompt-card {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 20px;
+  max-width: 440px;
+  width: 100%;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.prompt-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.prompt-icon.warning {
+  background-color: rgba(217, 119, 6, 0.2);
+  color: #fbbf24;
+}
+
+.prompt-icon.danger {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.prompt-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.prompt-card h3 {
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.prompt-card p {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.prompt-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
 }
 
 .hidden {
