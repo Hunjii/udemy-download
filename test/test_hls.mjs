@@ -83,15 +83,31 @@ console.log('-> Bảo toàn Query Params: ĐẠT');
 
 // 4. Kiểm tra nhận diện và suy đoán Master URL từ Child Playlist
 console.log('4. Kiểm tra Child Playlist & suy đoán Master URL...');
-import { isChildPlaylistUrl, deriveMasterPlaylistUrl } from '../src/utils/hlsParser.js';
+import { isM3u8PlaylistUrl, isChildPlaylistUrl, isMasterPlaylistUrl, deriveMasterPlaylistUrl } from '../src/utils/hlsParser.js';
 
 const child1080Url = 'https://mp4-a.udemycdn.com/stream-hash/1080/index.m3u8?token=xyz123';
 const child720Url = 'https://mp4-a.udemycdn.com/stream-hash/index_720.m3u8?token=xyz123';
 const masterPlaylistUrl = 'https://mp4-a.udemycdn.com/stream-hash/master.m3u8?token=xyz123';
+const segmentTsUrl = 'https://mp4-a.udemycdn.com/stream-hash/hls/1080/segment_0001.ts?token=xyz123';
+const segmentM4sUrl = 'https://mp4-a.udemycdn.com/stream-hash/hls/1080/segment-0.m4s?token=xyz123';
+const videoMp4Url = 'https://mp4-a.udemycdn.com/stream-hash/1080/init.mp4?token=xyz123';
 
+// Kiểm tra isM3u8PlaylistUrl: Chặn triệt để các phân đoạn video
+assert.strictEqual(isM3u8PlaylistUrl(masterPlaylistUrl), true, 'Master m3u8 phải là playlist');
+assert.strictEqual(isM3u8PlaylistUrl(child1080Url), true, 'Child m3u8 phải là playlist');
+assert.strictEqual(isM3u8PlaylistUrl(segmentTsUrl), false, 'Phân đoạn .ts không được coi là playlist');
+assert.strictEqual(isM3u8PlaylistUrl(segmentM4sUrl), false, 'Phân đoạn .m4s không được coi là playlist');
+assert.strictEqual(isM3u8PlaylistUrl(videoMp4Url), false, 'Phân đoạn .mp4 không được coi là playlist');
+
+// Kiểm tra isChildPlaylistUrl & isMasterPlaylistUrl
 assert.strictEqual(isChildPlaylistUrl(child1080Url), true, 'Phải nhận diện được 1080 child playlist');
 assert.strictEqual(isChildPlaylistUrl(child720Url), true, 'Phải nhận diện được index_720 child playlist');
 assert.strictEqual(isChildPlaylistUrl(masterPlaylistUrl), false, 'Master playlist không phải là child playlist');
+assert.strictEqual(isChildPlaylistUrl(segmentTsUrl), false, 'Phân đoạn .ts không phải là child playlist');
+
+assert.strictEqual(isMasterPlaylistUrl(masterPlaylistUrl), true, 'Master playlist phải là master');
+assert.strictEqual(isMasterPlaylistUrl(child1080Url), false, 'Child playlist không phải là master');
+assert.strictEqual(isMasterPlaylistUrl(segmentTsUrl), false, 'Phân đoạn .ts tuyệt đối không phải là master playlist');
 
 assert.strictEqual(
   deriveMasterPlaylistUrl(child1080Url),

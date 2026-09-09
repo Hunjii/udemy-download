@@ -3,7 +3,7 @@
  * Xử lý giao tiếp trực tiếp với Udemy REST API v2 để nạp chương mục, metadata video 1080p và phụ đề.
  */
 
-import { parseMasterPlaylist, resolveUrl, isChildPlaylistUrl, deriveMasterPlaylistUrl } from './hlsParser.js';
+import { parseMasterPlaylist, resolveUrl, isM3u8PlaylistUrl, isChildPlaylistUrl, deriveMasterPlaylistUrl } from './hlsParser.js';
 import { cleanLectureTitle, cleanSectionTitle, findEnglishCaption, isEnglishCaption } from './sanitizer.js';
 import { convertVttToSrt } from './vtt2srt.js';
 
@@ -163,7 +163,7 @@ export function getBatchLectureList(curriculumItems, startLectureId, count = 5) 
  * Phân tích Master M3U8 để bóc tách các biến thể phân giải (1080p, 720p...) và Subtitle
  */
 async function resolveHlsMedia(m3u8Url, tabId = null) {
-  if (!m3u8Url) return { streams: [], subtitles: [] };
+  if (!m3u8Url || !isM3u8PlaylistUrl(m3u8Url)) return { streams: [], subtitles: [] };
 
   let targetUrl = m3u8Url;
   if (isChildPlaylistUrl(m3u8Url)) {

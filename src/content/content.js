@@ -162,8 +162,15 @@
     }
   }
 
-  function isChildPlaylistUrl(url) {
+  function isM3u8PlaylistUrl(url) {
     if (!url || typeof url !== 'string') return false;
+    if (!url.includes('.m3u8')) return false;
+    if (/\.(?:ts|m4s|mp4|m4a|aac|vtt|srt|key|jpe?g|png|gif|svg|css|js)(?:$|\?)/i.test(url)) return false;
+    return true;
+  }
+
+  function isChildPlaylistUrl(url) {
+    if (!isM3u8PlaylistUrl(url)) return false;
     return /\/(?:1080|720|480|360|240|144)\/(?:index|playlist)\.m3u8/i.test(url) ||
            /index_(?:1080|720|480|360|240|144)\.m3u8/i.test(url);
   }
@@ -533,49 +540,103 @@
   }
 
   // --------------------------------------------------------------------------
-  // 8. Phân tích Master M3U8 từ URL (Cả Video và Phụ đề)
+  // 8. Phân tích Master M3U8 từ URL (Cả Video và Phụ đề) - Có Cache & Fallback an toàn
   // --------------------------------------------------------------------------
-  async function resolveHlsData(m3u8Url) {
-    if (!m3u8Url) return { streams: [], subtitles: [] };
+  const resolvedHlsCache = new Map();
+  const inFlightHlsPromises = new Map();
+  const failedHlsUrls = new Set();
 
-    // Nếu m3u8Url là child variant playlist, thử nạp candidate master trước
-    if (isChildPlaylistUrl(m3u8Url)) {
-      const candidateMaster = deriveMasterPlaylistUrl(m3u8Url);
-      if (candidateMaster) {
-        try {
-          const res = await fetch(candidateMaster, { credentials: 'include' });
-          if (res.ok) {
-            const text = await res.text();
-            const parsed = parseMasterPlaylistInline(text, candidateMaster);
+  async function fetchM3u8Text(url) {
+    if (!url || !isM3u8PlaylistUrl(url)) return null;
+
+    // 1. Thử fetch trực tiếp ở Content Script (KHÔNG kèm credentials để không bị CORS block khi CDN trả Access-Control-Allow-Origin: *)
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        return await res.text();
+      }
+    } catch (e) {
+      // Bị chặn CORS hoặc lỗi mạng -> fallback qua background
+    }
+
+    // 2. Fallback qua Background Service Worker (có host_permissions, hoàn toàn không bị hạn chế CORS)
+    try {
+      const bgRes = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({ type: 'FETCH_M3U8_TEXT', url }, (resp) => {
+          if (chrome.runtime.lastError) {
+            resolve(null);
+          } else {
+            resolve(resp);
+          }
+        });
+      });
+      if (bgRes && bgRes.success && typeof bgRes.text === 'string') {
+        return bgRes.text;
+      }
+    } catch (e) {}
+
+    return null;
+  }
+
+  async function resolveHlsData(m3u8Url) {
+    if (!m3u8Url || !isM3u8PlaylistUrl(m3u8Url)) {
+      return { streams: [], subtitles: [] };
+    }
+
+    if (resolvedHlsCache.has(m3u8Url)) {
+      return resolvedHlsCache.get(m3u8Url);
+    }
+
+    if (failedHlsUrls.has(m3u8Url)) {
+      return { streams: [], subtitles: [] };
+    }
+
+    if (inFlightHlsPromises.has(m3u8Url)) {
+      return await inFlightHlsPromises.get(m3u8Url);
+    }
+
+    const taskPromise = (async () => {
+      // Nếu m3u8Url là child variant playlist, thử nạp candidate master trước
+      if (isChildPlaylistUrl(m3u8Url)) {
+        const candidateMaster = deriveMasterPlaylistUrl(m3u8Url);
+        if (candidateMaster) {
+          const masterText = await fetchM3u8Text(candidateMaster);
+          if (masterText) {
+            const parsed = parseMasterPlaylistInline(masterText, candidateMaster);
             if (parsed.variants && parsed.variants.length > 0 && parsed.variants.some(v => v.resolution >= 720)) {
-              return {
+              const result = {
                 streams: parsed.variants,
                 subtitles: parsed.subtitles
               };
+              resolvedHlsCache.set(m3u8Url, result);
+              resolvedHlsCache.set(candidateMaster, result);
+              return result;
             }
           }
-        } catch (e) {}
+        }
       }
-    }
 
-    try {
-      const res = await fetch(m3u8Url, { credentials: 'include' });
-      if (!res.ok) return { streams: [], subtitles: [] };
+      const m3u8Text = await fetchM3u8Text(m3u8Url);
+      if (m3u8Text) {
+        const parsed = parseMasterPlaylistInline(m3u8Text, m3u8Url);
+        const result = {
+          streams: parsed.variants,
+          subtitles: parsed.subtitles
+        };
+        resolvedHlsCache.set(m3u8Url, result);
+        return result;
+      }
 
-      const m3u8Text = await res.text();
-      const parsed = parseMasterPlaylistInline(m3u8Text, m3u8Url);
-      return {
-        streams: parsed.variants,
-        subtitles: parsed.subtitles
-      };
-    } catch (err) {
-      console.warn('[Udemy Downloader] Lỗi nạp master m3u8:', err);
+      // Đánh dấu URL lỗi vào set để không tải lặp lại vô ích
+      failedHlsUrls.add(m3u8Url);
+      if (failedHlsUrls.size > 50) failedHlsUrls.clear();
+
       let fallbackRes = 720;
       const m = m3u8Url.match(/[\/_](\d{3,4})(?:p|\/|\.m3u8)/i);
       if (m && [1080, 720, 480, 360, 240, 144].includes(parseInt(m[1], 10))) {
         fallbackRes = parseInt(m[1], 10);
       }
-      return {
+      const fallbackResult = {
         streams: [{
           label: `${fallbackRes}`,
           resolution: fallbackRes,
@@ -585,6 +646,20 @@
         }],
         subtitles: []
       };
+      resolvedHlsCache.set(m3u8Url, fallbackResult);
+      return fallbackResult;
+    })();
+
+    inFlightHlsPromises.set(m3u8Url, taskPromise);
+    try {
+      const res = await taskPromise;
+      if (resolvedHlsCache.size > 50) {
+        const oldestKey = resolvedHlsCache.keys().next().value;
+        resolvedHlsCache.delete(oldestKey);
+      }
+      return res;
+    } finally {
+      inFlightHlsPromises.delete(m3u8Url);
     }
   }
 
@@ -641,7 +716,7 @@
     }
 
     let hlsStreams = [];
-    if (hlsMasterUrl) {
+    if (hlsMasterUrl && isM3u8PlaylistUrl(hlsMasterUrl)) {
       interceptedMasterM3u8 = hlsMasterUrl;
       const hlsData = await resolveHlsData(hlsMasterUrl);
       if (hlsData.streams && hlsData.streams.length > 0) {
@@ -810,7 +885,7 @@
   // 9.1 Cập nhật & Nâng cấp Luồng phát khi bắt được M3U8 mới từ Mạng
   // --------------------------------------------------------------------------
   async function updateStreamsWithM3u8(m3u8Url) {
-    if (!m3u8Url) return;
+    if (!m3u8Url || !isM3u8PlaylistUrl(m3u8Url)) return;
 
     const pageInfo = getCourseAndLectureInfoFromPage();
     if (!pageInfo.lectureId) return;
@@ -819,6 +894,12 @@
     if (isChildPlaylistUrl(m3u8Url)) {
       const derived = deriveMasterPlaylistUrl(m3u8Url);
       if (derived) targetUrl = derived;
+    }
+
+    // Nếu bài giảng hiện tại đã có masterM3u8Url giống hệt và đã chứa các luồng phân giải HLS cao
+    if (currentLectureInfo && currentLectureInfo.masterM3u8Url === targetUrl &&
+        currentLectureInfo.streams && currentLectureInfo.streams.some(s => s.type === 'hls' && s.resolution >= 720)) {
+      return;
     }
 
     const hlsData = await resolveHlsData(targetUrl);
@@ -957,7 +1038,7 @@
       }
     } else if (event.data?.type === 'UDEMY_M3U8_INTERCEPTED') {
       const newM3u8 = event.data.m3u8Url;
-      if (newM3u8) {
+      if (newM3u8 && isM3u8PlaylistUrl(newM3u8)) {
         if (!isChildPlaylistUrl(newM3u8) || !interceptedMasterM3u8) {
           interceptedMasterM3u8 = newM3u8;
         }
@@ -1154,7 +1235,7 @@
 
     if (message.type === 'BACKGROUND_DETECTED_M3U8') {
       const newM3u8 = message.m3u8Url;
-      if (newM3u8) {
+      if (newM3u8 && isM3u8PlaylistUrl(newM3u8)) {
         if (!isChildPlaylistUrl(newM3u8) || !interceptedMasterM3u8) {
           interceptedMasterM3u8 = newM3u8;
         }

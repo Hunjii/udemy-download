@@ -32,14 +32,39 @@ export function resolveUrl(relativeOrAbsolute, baseUrl) {
 }
 
 /**
+ * Kiểm tra xem URL có phải là playlist định dạng .m3u8 thực sự hay không
+ * (Bỏ qua triệt để các phân đoạn .ts, .m4s, video tĩnh hoặc asset)
+ * @param {string} url 
+ * @returns {boolean}
+ */
+export function isM3u8PlaylistUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  if (!url.includes('.m3u8')) return false;
+  if (/\.(?:ts|m4s|mp4|m4a|aac|vtt|srt|key|jpe?g|png|gif|svg|css|js)(?:$|\?)/i.test(url)) return false;
+  return true;
+}
+
+/**
  * Kiểm tra xem URL có phải là child/media playlist (chứa chỉ 1 độ phân giải) hay không
  * @param {string} url 
  * @returns {boolean}
  */
 export function isChildPlaylistUrl(url) {
-  if (!url || typeof url !== 'string') return false;
+  if (!isM3u8PlaylistUrl(url)) return false;
   return /\/(?:1080|720|480|360|240|144)\/(?:index|playlist)\.m3u8/i.test(url) ||
          /index_(?:1080|720|480|360|240|144)\.m3u8/i.test(url);
+}
+
+/**
+ * Kiểm tra xem URL có phải là Master Playlist hay không
+ * @param {string} url 
+ * @returns {boolean}
+ */
+export function isMasterPlaylistUrl(url) {
+  if (!isM3u8PlaylistUrl(url)) return false;
+  if (url.includes('master.m3u8') || url.includes('playlist.m3u8')) return true;
+  if (isChildPlaylistUrl(url)) return false;
+  return true;
 }
 
 /**

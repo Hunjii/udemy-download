@@ -12,8 +12,15 @@ const tabM3u8Urls = new Map();
 // ----------------------------------------------------------------------------
 // 1. Giám sát các gói tin .m3u8 qua webRequest
 // ----------------------------------------------------------------------------
-function isMasterM3u8(url) {
+function isM3u8Playlist(url) {
   if (!url || typeof url !== 'string') return false;
+  if (!url.includes('.m3u8')) return false;
+  if (/\.(?:ts|m4s|mp4|m4a|aac|vtt|srt|key|jpe?g|png|gif|svg|css|js)(?:$|\?)/i.test(url)) return false;
+  return true;
+}
+
+function isMasterM3u8(url) {
+  if (!isM3u8Playlist(url)) return false;
   if (url.includes('master.m3u8') || url.includes('playlist.m3u8')) return true;
   if (/\/(?:1080|720|480|360|240|144)\/(?:index|playlist)\.m3u8/i.test(url)) return false;
   if (/index_(?:1080|720|480|360|240|144)\.m3u8/i.test(url)) return false;
@@ -26,8 +33,12 @@ if (chrome.webRequest && chrome.webRequest.onBeforeRequest) {
       const url = details.url;
       const tabId = details.tabId;
 
-      if (tabId > 0 && (url.includes('.m3u8') || url.includes('/hls/'))) {
+      // Tuyệt đối chỉ nhận URL playlist .m3u8, bỏ qua toàn bộ phân đoạn video .ts / .m4s
+      if (tabId > 0 && isM3u8Playlist(url)) {
         const prevM3u8 = tabM3u8Urls.get(tabId);
+        // Nếu URL giống hệt URL đã lưu thì không gửi lại làm spam
+        if (prevM3u8 === url) return;
+
         // Không để child variant playlist (720p/480p...) ghi đè master playlist
         if (prevM3u8 && isMasterM3u8(prevM3u8) && !isMasterM3u8(url)) {
           return;
@@ -42,7 +53,7 @@ if (chrome.webRequest && chrome.webRequest.onBeforeRequest) {
         }).catch(() => {});
       }
     },
-    { urls: ['*://*.udemy.com/*', '*://*.udemycdn.com/*', '*://*.cloudfront.net/*'] }
+    { urls: ['*://*.udemy.com/*', '*://*.udemycdn.com/*', '*://*.cloudfront.net/*', '*://*.akamaihd.net/*'] }
   );
 }
 
@@ -167,6 +178,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       sendResponse({ success: true });
       break;
+
+    case 'FETCH_M3U8_TEXT':
+      if (!message.url || !isM3u8Playlist(message.url)) {
+        sendResponse({ success: false, error: 'Invalid M3U8 URL' });
+        return true;
+      }
+      fetch(message.url)
+        .then(async (res) => {
+          if (!res.ok) {
+            sendResponse({ success: false, status: res.status, error: `HTTP ${res.status}` });
+          } else {
+            const text = await res.text();
+            sendResponse({ success: true, text });
+          }
+        })
+        .catch((err) => {
+          sendResponse({ success: false, error: err.message });
+        });
+      return true;
 
     default:
       break;

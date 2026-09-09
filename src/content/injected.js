@@ -80,8 +80,15 @@
     }
   }
 
-  function isMasterPlaylistUrl(url) {
+  function isM3u8Playlist(url) {
     if (!url || typeof url !== 'string') return false;
+    if (!url.includes('.m3u8')) return false;
+    if (/\.(?:ts|m4s|mp4|m4a|aac|vtt|srt|key|jpe?g|png|gif|svg|css|js)(?:$|\?)/i.test(url)) return false;
+    return true;
+  }
+
+  function isMasterPlaylistUrl(url) {
+    if (!isM3u8Playlist(url)) return false;
     if (url.includes('master.m3u8') || url.includes('playlist.m3u8')) return true;
     if (/\/(?:1080|720|480|360|240|144)\/(?:index|playlist)\.m3u8/i.test(url)) return false;
     if (/index_(?:1080|720|480|360|240|144)\.m3u8/i.test(url)) return false;
@@ -89,7 +96,7 @@
   }
 
   function notifyM3u8Stream(m3u8Url) {
-    if (!m3u8Url) return;
+    if (!m3u8Url || !isM3u8Playlist(m3u8Url)) return;
     // Nếu URL hiện tại đã là master playlist, không để child variant playlist (720p/480p...) ghi đè
     if (window.__UDEMY_LATEST_M3U8_URL__ && isMasterPlaylistUrl(window.__UDEMY_LATEST_M3U8_URL__) && !isMasterPlaylistUrl(m3u8Url)) {
       return;
@@ -157,8 +164,8 @@
         }).catch(() => {});
       }
 
-      // 1.3 Bắt luồng HLS .m3u8
-      if (url.includes('.m3u8') || url.includes('/hls/') || url.includes('application/x-mpegURL')) {
+      // 1.3 Bắt luồng HLS .m3u8 (chỉ nạp file playlist, bỏ qua toàn bộ phân đoạn video)
+      if (isM3u8Playlist(url)) {
         notifyM3u8Stream(url);
       }
 
@@ -201,7 +208,7 @@
               const data = JSON.parse(this.responseText);
               notifyCurriculumData(data, url);
             }
-          } else if (url.includes('.m3u8') || url.includes('/hls/')) {
+          } else if (isM3u8Playlist(url)) {
             notifyM3u8Stream(url);
           } else if (url.includes('.vtt') || (!url.includes('/api-2.0/') && (url.includes('/captions/') || url.includes('/subtitles/')))) {
             notifyCaption(url);
@@ -262,7 +269,7 @@
 
     const video = document.querySelector('video');
     if (video) {
-      if (video.src && video.src.includes('.m3u8')) {
+      if (video.src && isM3u8Playlist(video.src)) {
         notifyM3u8Stream(video.src);
       }
     }
