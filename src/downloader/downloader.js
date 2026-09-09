@@ -370,19 +370,23 @@ async function startBatchQueueProcess({ courseId, startLectureId, count, courseT
       continue;
     }
 
-    // Bỏ qua nếu DRM
+    // Kiểm tra DRM
     if (mediaData.isDrmProtected) {
-      if (rowEl) {
-        rowEl.classList.remove('active');
-        rowEl.classList.add('skipped');
+      if (mediaData.hasNonDrmFallback && mediaData.streams?.length > 0) {
+        updateStatus(`Bài này có DRM nhưng có luồng mở (${mediaData.bestQuality?.label || '720'}p). Tự động dùng luồng dự phòng!`, 'info');
+      } else {
+        if (rowEl) {
+          rowEl.classList.remove('active');
+          rowEl.classList.add('skipped');
+        }
+        if (badgeEl) {
+          badgeEl.className = 'queue-badge skipped';
+          badgeEl.textContent = 'Khóa DRM';
+        }
+        updateStatus('Bài này bị khóa bản quyền DRM (Bỏ qua).', 'info');
+        await new Promise((r) => setTimeout(r, 1200));
+        continue;
       }
-      if (badgeEl) {
-        badgeEl.className = 'queue-badge skipped';
-        badgeEl.textContent = 'Khóa DRM';
-      }
-      updateStatus('Bài này bị khóa bản quyền DRM (Bỏ qua).', 'info');
-      await new Promise((r) => setTimeout(r, 1200));
-      continue;
     }
 
     await checkPause();
@@ -469,6 +473,20 @@ async function startBatchQueueProcess({ courseId, startLectureId, count, courseT
       } catch (vErr) {
         if (abortController.signal.aborted) break;
         console.warn(`Lỗi tải video bài ${item.id} lần ${videoAttempts}:`, vErr);
+
+        const isDrmErr = vErr.message?.includes('SAMPLE-AES') || vErr.message?.includes('Widevine DRM');
+        if (isDrmErr) {
+          updateStatus('Bài này được mã hóa bảo vệ bản quyền (SAMPLE-AES / Widevine DRM) - Đã bỏ qua.', 'warn');
+          if (rowEl) {
+            rowEl.classList.remove('active');
+            rowEl.classList.add('skipped');
+          }
+          if (badgeEl) {
+            badgeEl.className = 'queue-badge skipped';
+            badgeEl.textContent = 'Khóa DRM';
+          }
+          break;
+        }
 
         if (videoAttempts < 3) {
           updateStatus(`Lỗi phân đoạn. Thử lại lần ${videoAttempts + 1}/3 sau 2s...`, 'warn');

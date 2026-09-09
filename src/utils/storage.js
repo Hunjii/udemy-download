@@ -8,7 +8,10 @@ export const DEFAULT_SETTINGS = {
   promptSaveAs: false,           // Bật/tắt hộp thoại hỏi vị trí lưu mỗi lần tải
   downloadMode: 'browser',       // 'browser' (thông qua Downloads API) hoặc 'filesystem' (ghi thẳng vào thư mục ổ đĩa đã chọn)
   autoHighestQuality: true,      // Tự động chọn chất lượng cao nhất
-  displayMode: 'sidebar'         // 'sidebar' (thanh bên Chrome bên phải) hoặc 'window' (cửa sổ nổi độc lập)
+  displayMode: 'sidebar',        // 'sidebar' (thanh bên Chrome bên phải) hoặc 'window' (cửa sổ nổi độc lập)
+  autoRecordDrm: false,          // Tự động ghi Engine 2 khi gặp bài DRM trong Auto-Batch
+  drmSpeed: '1.0',               // Tốc độ phát khi ghi bài DRM ('1.0', '1.5', '2.0')
+  drmMuteSpeaker: true           // Tắt tiếng ra loa ngoài máy tính khi ghi tự động
 };
 
 /**

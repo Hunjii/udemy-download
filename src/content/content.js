@@ -280,7 +280,14 @@
     }
 
     variants.sort((a, b) => b.resolution - a.resolution);
-    return { variants, subtitles };
+    const isDrm = lines.some(l => 
+      l.includes('METHOD=SAMPLE-AES') || 
+      l.includes('com.widevine.alpha') || 
+      l.includes('edef8ba9-79d6-4ace-a3c8-27dcd51d21ed') || 
+      l.includes('KEYFORMAT="urn:uuid:') ||
+      l.includes('com.apple.streamingkeydelivery')
+    );
+    return { variants, subtitles, isDrm };
   }
 
   // --------------------------------------------------------------------------
@@ -606,7 +613,8 @@
             if (parsed.variants && parsed.variants.length > 0 && parsed.variants.some(v => v.resolution >= 720)) {
               const result = {
                 streams: parsed.variants,
-                subtitles: parsed.subtitles
+                subtitles: parsed.subtitles,
+                isDrm: Boolean(parsed.isDrm)
               };
               resolvedHlsCache.set(m3u8Url, result);
               resolvedHlsCache.set(candidateMaster, result);
@@ -621,7 +629,8 @@
         const parsed = parseMasterPlaylistInline(m3u8Text, m3u8Url);
         const result = {
           streams: parsed.variants,
-          subtitles: parsed.subtitles
+          subtitles: parsed.subtitles,
+          isDrm: Boolean(parsed.isDrm)
         };
         resolvedHlsCache.set(m3u8Url, result);
         return result;
@@ -716,10 +725,14 @@
     }
 
     let hlsStreams = [];
+    let isHlsDrm = false;
     if (hlsMasterUrl && isM3u8PlaylistUrl(hlsMasterUrl)) {
       interceptedMasterM3u8 = hlsMasterUrl;
       const hlsData = await resolveHlsData(hlsMasterUrl);
-      if (hlsData.streams && hlsData.streams.length > 0) {
+      isHlsDrm = Boolean(hlsData.isDrm);
+      if (isHlsDrm) {
+        hlsStreams = [];
+      } else if (hlsData.streams && hlsData.streams.length > 0) {
         hlsStreams = hlsData.streams;
       }
       if (hlsData.subtitles && hlsData.subtitles.length > 0) {
@@ -744,13 +757,16 @@
 
     streams.sort((a, b) => b.resolution - a.resolution);
 
-    // 3. Kiểm tra DRM
-    const isDrmProtected = Boolean(
+    // 3. Kiểm tra DRM & Luồng Non-DRM Fallback
+    const rawIsDrm = Boolean(
       asset.course_is_drmed ||
       payload.course_is_drmed ||
+      isHlsDrm ||
       (!streams.length && (streamUrls.dash || streamUrls.encrypted_hls)) ||
       Boolean(asset.media_license_token)
     );
+    const hasNonDrmFallback = Boolean(rawIsDrm && streams.length > 0);
+    const isDrmProtected = rawIsDrm;
 
     // 4. HỢP NHẤT PHỤ ĐỀ (TỪ 5 NGUỒN ĐỘC LẬP)
     const captionsMap = new Map();
@@ -851,6 +867,7 @@
       isQuiz: payload._class === 'quiz' || window.location.pathname.includes('/quiz/'),
       isArticle: asset.asset_type === 'Article' || payload._class === 'article',
       isDrmProtected,
+      hasNonDrmFallback,
       streams,
       bestQuality: streams.length > 0 ? streams[0] : null,
       masterM3u8Url: hlsMasterUrl || null,
@@ -1334,6 +1351,186 @@
           });
         });
 
+      return true;
+    }
+
+  // --------------------------------------------------------------------------
+  // Cinema Mode Studio cho Engine 2.0 (Ghi video DRM toàn khung hình)
+  // --------------------------------------------------------------------------
+  const CINEMA_STYLE_ID = 'udemy-downloader-cinema-mode-style';
+  const CINEMA_PILL_ID = 'udemy-downloader-recording-pill';
+
+  function enableCinemaMode() {
+    let style = document.getElementById(CINEMA_STYLE_ID);
+    if (!style) {
+      style = document.createElement('style');
+      style.id = CINEMA_STYLE_ID;
+      style.textContent = `
+        body.udemy-downloader-recording-active {
+          overflow: hidden !important;
+        }
+        body.udemy-downloader-recording-active video,
+        body.udemy-downloader-recording-active .vjs-tech {
+          position: fixed !important;
+          top: 0 !important;
+          left: 0 !important;
+          width: 100vw !important;
+          height: 100vh !important;
+          max-width: 100vw !important;
+          max-height: 100vh !important;
+          z-index: 2147483640 !important;
+          background: #000000 !important;
+          object-fit: contain !important;
+          margin: 0 !important;
+          padding: 0 !important;
+        }
+        body.udemy-downloader-recording-active .vjs-control-bar,
+        body.udemy-downloader-recording-active .vjs-play-progress,
+        body.udemy-downloader-recording-active .vjs-poster,
+        body.udemy-downloader-recording-active .vjs-big-play-button,
+        body.udemy-downloader-recording-active .vjs-loading-spinner,
+        body.udemy-downloader-recording-active .vjs-text-track-display,
+        body.udemy-downloader-recording-active .shaka-text-container,
+        body.udemy-downloader-recording-active header,
+        body.udemy-downloader-recording-active [data-purpose="sidebar"],
+        body.udemy-downloader-recording-active [class*="curriculum--curriculum-"],
+        body.udemy-downloader-recording-active [class*="video-player--header-"],
+        body.udemy-downloader-recording-active [class*="video-player--bottom-"] {
+          visibility: hidden !important;
+          opacity: 0 !important;
+          pointer-events: none !important;
+        }
+        #${CINEMA_PILL_ID} {
+          position: fixed !important;
+          top: 14px !important;
+          left: 50% !important;
+          transform: translateX(-50%) !important;
+          z-index: 2147483647 !important;
+          background: rgba(18, 18, 24, 0.94) !important;
+          color: #ffffff !important;
+          padding: 8px 20px !important;
+          border-radius: 9999px !important;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+          font-size: 12.5px !important;
+          font-weight: 600 !important;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 75, 75, 0.4) !important;
+          display: flex !important;
+          align-items: center !important;
+          gap: 10px !important;
+          backdrop-filter: blur(8px) !important;
+          pointer-events: none !important;
+          user-select: none !important;
+        }
+        #${CINEMA_PILL_ID} .rec-dot {
+          width: 10px !important;
+          height: 10px !important;
+          border-radius: 50% !important;
+          background: #ff3b30 !important;
+          display: inline-block !important;
+          animation: udemy-rec-pulse 1.5s infinite !important;
+        }
+        @keyframes udemy-rec-pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.35; transform: scale(0.85); }
+        }
+      `;
+      (document.head || document.documentElement).appendChild(style);
+    }
+    document.body.classList.add('udemy-downloader-recording-active');
+
+    let pill = document.getElementById(CINEMA_PILL_ID);
+    if (!pill) {
+      pill = document.createElement('div');
+      pill.id = CINEMA_PILL_ID;
+      pill.innerHTML = `
+        <span class="rec-dot"></span>
+        <span>🔴 Engine 2.0 đang ghi Cinema Mode (1.0x)... Giữ tab này hiển thị để video nét nhất</span>
+      `;
+      document.body.appendChild(pill);
+    }
+  }
+
+  function disableCinemaMode() {
+    document.body.classList.remove('udemy-downloader-recording-active');
+    const style = document.getElementById(CINEMA_STYLE_ID);
+    if (style) style.remove();
+    const pill = document.getElementById(CINEMA_PILL_ID);
+    if (pill) pill.remove();
+  }
+
+  window.addEventListener('beforeunload', disableCinemaMode);
+
+  if (message.type === 'ENABLE_CINEMA_MODE_FOR_RECORDING') {
+    try {
+      enableCinemaMode();
+      sendResponse({ success: true });
+    } catch (err) {
+      sendResponse({ success: false, error: err.message });
+    }
+    return true;
+  }
+
+  if (message.type === 'DISABLE_CINEMA_MODE_FOR_RECORDING') {
+    try {
+      disableCinemaMode();
+      sendResponse({ success: true });
+    } catch (err) {
+      sendResponse({ success: false, error: err.message });
+    }
+    return true;
+  }
+
+  if (message.type === 'PLAY_VIDEO_FOR_RECORDING') {
+    const video = document.querySelector('video.vjs-tech') || document.querySelector('video');
+    if (!video) {
+      sendResponse({ success: false, error: 'Không tìm thấy thẻ video trên trang' });
+      return true;
+    }
+
+    const speed = Number(message.playbackSpeed) || 1.0;
+    if (message.startFromBeginning) {
+      try { video.currentTime = 0; } catch (e) {}
+    }
+    try {
+      video.playbackRate = speed;
+    } catch (e) {}
+
+    video.play().then(() => {
+      sendResponse({
+        success: true,
+        duration: video.duration || 0,
+        currentTime: video.currentTime || 0,
+        playbackRate: video.playbackRate
+      });
+    }).catch((err) => {
+      sendResponse({ success: false, error: err.message });
+    });
+    return true;
+  }
+
+  if (message.type === 'PAUSE_VIDEO_FOR_RECORDING') {
+    const video = document.querySelector('video.vjs-tech') || document.querySelector('video');
+    if (video) {
+      try { video.pause(); } catch (e) {}
+    }
+    sendResponse({ success: true });
+    return true;
+  }
+
+    if (message.type === 'GET_VIDEO_PLAYBACK_STATE') {
+      const video = document.querySelector('video.vjs-tech') || document.querySelector('video');
+      if (!video) {
+        sendResponse({ success: false, exists: false });
+        return true;
+      }
+      sendResponse({
+        success: true,
+        exists: true,
+        currentTime: video.currentTime || 0,
+        duration: video.duration || 0,
+        paused: video.paused,
+        ended: video.ended || (video.duration > 0 && video.currentTime >= video.duration - 0.5)
+      });
       return true;
     }
 

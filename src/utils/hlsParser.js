@@ -98,6 +98,14 @@ export function parseMasterPlaylist(m3u8Content, masterUrl) {
   const variants = [];
   const subtitles = [];
 
+  const isDrm = lines.some(l => 
+    l.includes('METHOD=SAMPLE-AES') || 
+    l.includes('com.widevine.alpha') || 
+    l.includes('edef8ba9-79d6-4ace-a3c8-27dcd51d21ed') || 
+    l.includes('KEYFORMAT="urn:uuid:') ||
+    l.includes('com.apple.streamingkeydelivery')
+  );
+
   const isMaster = lines.some(l => l.startsWith('#EXT-X-STREAM-INF') || l.startsWith('#EXT-X-MEDIA:TYPE=SUBTITLES'));
 
   if (!isMaster) {
@@ -191,7 +199,7 @@ export function parseMasterPlaylist(m3u8Content, masterUrl) {
 
   variants.sort((a, b) => b.resolution - a.resolution);
 
-  return { variants, subtitles };
+  return { variants, subtitles, isDrm };
 }
 
 /**

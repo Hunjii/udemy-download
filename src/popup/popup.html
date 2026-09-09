@@ -19,7 +19,7 @@
           </div>
           <div class="brand-text">
             <h1>Udemy Downloader</h1>
-            <span class="version-tag">DUAL-ENGINE</span>
+            <span class="version-tag">v1.3.2 DUAL-ENGINE</span>
           </div>
         </div>
         <div class="header-actions">
@@ -88,35 +88,6 @@
           <p>Vui lòng mở một khóa học trên <strong>udemy.com</strong> và bấm Phát (Play) bài giảng.</p>
         </div>
 
-        <!-- Trạng thái Phát hiện Widevine DRM (Engine 2 Bypass) -->
-        <div id="drm-warning-state" class="state-container hidden">
-          <div class="state-icon alert">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-            </svg>
-          </div>
-          <h3>Khóa học có bảo vệ DRM (Widevine)</h3>
-          <p style="margin-bottom: 12px;">Bài giảng này dùng luồng mã hóa bản quyền. Bạn có thể kích hoạt <strong>Engine 2</strong> để ghi lại luồng phát trực tiếp ở độ nét gốc!</p>
-          
-          <button id="btn-start-record" class="btn btn-primary full-width" style="background: linear-gradient(135deg, #ec5252, #f59e0b);">
-            <svg viewBox="0 0 24 24" fill="currentColor" style="width: 18px; height: 18px; margin-right: 6px;">
-              <circle cx="12" cy="8" r="8"/>
-            </svg>
-            Bật Engine 2: Ghi luồng phát (Bypass DRM)
-          </button>
-
-          <div id="record-status-box" class="record-box hidden" style="margin-top: 10px; width: 100%;">
-            <div style="display: flex; justify-content: space-between; font-weight: 700;">
-              <span style="color: #ef4444;">● Đang ghi: <span id="record-timer">00:00</span></span>
-              <span id="record-size" style="color: #6ee7b7;">0.0 MB</span>
-            </div>
-            <button id="btn-stop-record" class="btn btn-secondary full-width" style="margin-top: 8px;">
-              Dừng và Lưu video
-            </button>
-          </div>
-        </div>
-
         <!-- Khung thông tin bài giảng và Nút tải -->
         <div id="lecture-content" class="lecture-content hidden">
           <!-- Course & Lecture Info Card -->
@@ -137,7 +108,16 @@
             </div>
           </div>
 
-          <!-- Hero Action: Tải video cao nhất -->
+          <!-- Cảnh báo DRM Widevine trực tiếp khi phát hiện -->
+          <div id="lecture-drm-alert" class="lecture-drm-alert hidden">
+            <div class="drm-alert-icon">🔒</div>
+            <div class="drm-alert-content">
+              <div class="drm-alert-title">BÀI GIẢNG NÀY BỊ KHÓA BẢN QUYỀN DRM (SAMPLE-AES)</div>
+              <div class="drm-alert-desc">Udemy đã bảo vệ bài học này. Engine 1 không thể tải trực tiếp file mã hóa. Vui lòng bấm <strong>BẮT ĐẦU GHI ENGINE 2</strong> ngay bên dưới để lưu video!</div>
+            </div>
+          </div>
+
+          <!-- Hero Action: Tải video cao nhất (Engine 1) -->
           <div class="hero-action-box">
             <button id="btn-download-best" class="btn btn-primary btn-large">
               <div class="btn-icon">
@@ -146,10 +126,81 @@
                 </svg>
               </div>
               <div class="btn-text-group">
-                <span class="btn-main-text">TẢI VIDEO CAO NHẤT</span>
-                <span id="best-res-subtext" class="btn-sub-text">Độ phân giải 1080p MP4 (Engine 1)</span>
+                <span class="btn-main-text">TẢI VIDEO CAO NHẤT (Engine 1)</span>
+                <span id="best-res-subtext" class="btn-sub-text">Độ phân giải 1080p MP4 (Tải trực tiếp)</span>
               </div>
             </button>
+          </div>
+
+          <!-- Engine 2: Ghi luồng phát (Vượt khóa bản quyền Widevine DRM) -->
+          <div class="section-card engine2-card" id="engine2-card">
+            <div class="section-title">
+              <div class="engine2-title-left">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/>
+                </svg>
+                <span>Engine 2.0: Cinema Mode Studio (Vượt DRM)</span>
+              </div>
+              <span class="badge engine2-badge">100% BYPASS DRM</span>
+            </div>
+
+            <p class="engine2-desc">
+              Dành riêng cho bài bị khóa DRM (SAMPLE-AES). Tự động phóng to Cinema Mode, thu chuẩn nét H.264 MP4 và vá Metadata thời lượng chuẩn xác!
+            </p>
+
+            <!-- Hướng dẫn chống màn hình đen do tính năng Tăng tốc phần cứng -->
+            <div class="engine2-tip-box" id="engine2-black-screen-tip">
+              <div class="engine2-tip-header">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                  <line x1="12" y1="9" x2="12" y2="13"/>
+                  <line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+                <span>Khắc phục màn hình đen khi ghi DRM:</span>
+              </div>
+              <p class="engine2-tip-desc">
+                Nếu video bị <strong>đen hình (chỉ có tiếng)</strong>, hãy vào <code id="link-chrome-settings" title="Bấm để copy đường dẫn">chrome://settings/system</code>, <strong>TẮT "Sử dụng tính năng tăng tốc đồ họa khi khả dụng"</strong> rồi bấm Relaunch để thu hình ảnh 1080p sắc nét!
+              </p>
+            </div>
+
+            <!-- Cấu hình trước khi ghi -->
+            <div class="engine2-options-box">
+              <label class="engine2-option-item">
+                <input type="checkbox" id="cb-manual-drm-mute" checked>
+                <span>Tắt loa ngoài</span>
+              </label>
+              <div class="engine2-speed-group">
+                <span>Tốc độ:</span>
+                <select id="select-manual-drm-speed" class="engine2-speed-select">
+                  <option value="1.0" selected>1.0x (Chuẩn nét - Khuyên dùng)</option>
+                  <option value="1.25">1.25x</option>
+                  <option value="1.5">1.5x</option>
+                  <option value="2.0">2.0x (Nhanh)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Nút Bắt đầu Ghi Engine 2 -->
+            <button id="btn-start-record" class="btn btn-engine2 full-width">
+              <span class="record-icon-dot">🔴</span>
+              <span>BẮT ĐẦU GHI ENGINE 2.0 (Cinema Mode)</span>
+            </button>
+
+            <!-- Trạng thái Đang ghi (Live Timer & Stop) -->
+            <div id="record-status-box" class="record-status-box hidden">
+              <div class="record-live-header">
+                <span class="record-live-indicator">
+                  <span class="pulse-dot"></span>
+                  Đang ghi: <span id="record-timer">00:00</span>
+                </span>
+                <span id="record-size" class="record-live-size">0.0 MB</span>
+              </div>
+              <div class="record-live-hint">Đang phát và thu Cinema Mode chuẩn nét. Vui lòng giữ tab Udemy hiển thị để tránh bị Chrome giảm tốc độ khung hình.</div>
+              <button id="btn-stop-record" class="btn btn-stop-record full-width">
+                ⏹️ Dừng và Lưu video (.MP4 + .SRT)
+              </button>
+            </div>
           </div>
 
           <!-- Card: Tự động tải liên tục N bài giảng (Auto Next) -->
@@ -172,6 +223,31 @@
                   <button id="btn-batch-increase" class="btn-step" type="button">+</button>
                 </div>
               </div>
+              
+              <!-- Tùy chọn xử lý bài khóa DRM trong chuỗi tự động -->
+              <div class="batch-drm-options" style="margin-top: 10px; margin-bottom: 8px; padding: 8px 10px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 8px;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 11.5px; font-weight: 600; color: #fca5a5;">
+                  <input type="checkbox" id="cb-auto-record-drm" style="accent-color: #ef4444; width: 14px; height: 14px;">
+                  <span>Tự động ghi Engine 2.0 (Cinema Mode) khi gặp bài DRM</span>
+                </label>
+                
+                <div id="drm-sub-settings" class="hidden" style="margin-top: 8px; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: var(--text-secondary);">
+                  <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <span>Tốc độ ghi video:</span>
+                    <select id="select-drm-speed" style="background: var(--bg-tertiary, #1f2937); color: #fff; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 2px 6px; font-size: 11px;">
+                      <option value="1.0" selected>1.0x (Chuẩn nét - Khuyên dùng)</option>
+                      <option value="1.25">1.25x</option>
+                      <option value="1.5">1.5x</option>
+                      <option value="2.0">2.0x (Nhanh)</option>
+                    </select>
+                  </div>
+                  <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="cb-drm-mute-speaker" checked style="accent-color: #ef4444;">
+                    <span>Tắt tiếng loa ngoài khi tự động ghi</span>
+                  </label>
+                </div>
+              </div>
+
               <button id="btn-start-batch" class="btn btn-primary full-width" style="margin-top: 4px;">
                 <svg viewBox="0 0 24 24" fill="currentColor" style="width: 15px; height: 15px; margin-right: 6px;">
                   <path d="M8 5v14l11-7z"/>
@@ -230,6 +306,21 @@
                 <div style="display: flex; gap: 6px;">
                   <button id="btn-batch-skip-sub" class="btn btn-secondary" style="flex: 1; padding: 4px 6px; font-size: 10.5px;">Bỏ qua & Tiếp tục</button>
                   <button id="btn-batch-abort-sub" class="btn btn-ghost text-danger" style="padding: 4px 6px; font-size: 10.5px;">Dừng lại</button>
+                </div>
+              </div>
+
+              <!-- Cảnh báo cấp quyền ghi luồng DRM (Engine 2) khi gặp bài DRM -->
+              <div id="batch-drm-prompt" class="batch-prompt-box hidden" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.35);">
+                <div style="font-size: 11px; color: #fca5a5; margin-bottom: 6px; font-weight: 600;">
+                  🔒 Bài này khóa bản quyền DRM (Widevine)! Bấm để bắt đầu ghi:
+                </div>
+                <div style="display: flex; gap: 6px;">
+                  <button id="btn-batch-start-drm" class="btn btn-primary" style="flex: 2; padding: 6px 8px; font-size: 11px; background: linear-gradient(135deg, #ec5252, #f59e0b);">
+                    🔴 Bắt đầu ghi Engine 2
+                  </button>
+                  <button id="btn-batch-skip-drm" class="btn btn-secondary" style="flex: 1; padding: 6px 8px; font-size: 11px;">
+                    ⏭️ Bỏ qua bài này
+                  </button>
                 </div>
               </div>
 

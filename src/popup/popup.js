@@ -91,6 +91,46 @@ async function loadAndBindSettings() {
     if (modeDisplaySidebarRadio) modeDisplaySidebarRadio.checked = true;
   }
 
+  // DRM Settings in Auto-Batch
+  const cbAutoRecordDrm = document.getElementById('cb-auto-record-drm');
+  const drmSubSettings = document.getElementById('drm-sub-settings');
+  const selectDrmSpeed = document.getElementById('select-drm-speed');
+  const cbDrmMute = document.getElementById('cb-drm-mute-speaker');
+
+  if (cbAutoRecordDrm) {
+    cbAutoRecordDrm.checked = Boolean(currentSettings.autoRecordDrm);
+    if (cbAutoRecordDrm.checked) {
+      drmSubSettings?.classList.remove('hidden');
+    } else {
+      drmSubSettings?.classList.add('hidden');
+    }
+    cbAutoRecordDrm.addEventListener('change', async () => {
+      currentSettings.autoRecordDrm = cbAutoRecordDrm.checked;
+      if (cbAutoRecordDrm.checked) {
+        drmSubSettings?.classList.remove('hidden');
+      } else {
+        drmSubSettings?.classList.add('hidden');
+      }
+      await saveSettings(currentSettings);
+    });
+  }
+
+  if (selectDrmSpeed) {
+    selectDrmSpeed.value = currentSettings.drmSpeed || '1.0';
+    selectDrmSpeed.addEventListener('change', async () => {
+      currentSettings.drmSpeed = selectDrmSpeed.value;
+      await saveSettings(currentSettings);
+    });
+  }
+
+  if (cbDrmMute) {
+    cbDrmMute.checked = currentSettings.drmMuteSpeaker !== false;
+    cbDrmMute.addEventListener('change', async () => {
+      currentSettings.drmMuteSpeaker = cbDrmMute.checked;
+      await saveSettings(currentSettings);
+    });
+  }
+
   activeFsHandle = await getDirectoryHandle();
   updateFsFolderDisplay();
 
@@ -435,13 +475,11 @@ function sendTabMessageWithTimeout(tabId, message, timeoutMs = 2500) {
 async function detectCurrentLecture() {
   const loadingState = document.getElementById('loading-state');
   const notUdemyState = document.getElementById('not-udemy-state');
-  const drmWarningState = document.getElementById('drm-warning-state');
   const lectureContent = document.getElementById('lecture-content');
 
   // Đảm bảo loading state hiển thị
   loadingState?.classList.remove('hidden');
   notUdemyState?.classList.add('hidden');
-  drmWarningState?.classList.add('hidden');
   lectureContent?.classList.add('hidden');
 
   const activeTab = await getActiveUdemyTab();
@@ -516,8 +554,7 @@ async function detectCurrentLecture() {
 
     if (csResponse?.data?.isDrmProtected) {
       currentLecture = csResponse.data;
-      loadingState?.classList.add('hidden');
-      drmWarningState?.classList.remove('hidden');
+      renderLecture(csResponse.data);
       return;
     }
 
@@ -575,18 +612,22 @@ function renderLecture(data) {
 
   const loadingState = document.getElementById('loading-state');
   const notUdemyState = document.getElementById('not-udemy-state');
-  const drmWarningState = document.getElementById('drm-warning-state');
   const lectureContent = document.getElementById('lecture-content');
+  const drmAlert = document.getElementById('lecture-drm-alert');
+  const engine2Card = document.getElementById('engine2-card');
 
-  loadingState.classList.add('hidden');
-  notUdemyState.classList.add('hidden');
+  loadingState?.classList.add('hidden');
+  notUdemyState?.classList.add('hidden');
+  lectureContent?.classList.remove('hidden');
 
-  if (data.isDrmProtected && (!data.streams || data.streams.length === 0)) {
-    drmWarningState.classList.remove('hidden');
-    return;
+  const isDrm = Boolean(data.isDrmProtected);
+  if (isDrm) {
+    drmAlert?.classList.remove('hidden');
+    engine2Card?.classList.add('highlighted');
+  } else {
+    drmAlert?.classList.add('hidden');
+    engine2Card?.classList.remove('highlighted');
   }
-
-  lectureContent.classList.remove('hidden');
 
   const cleanedMeta = cleanLectureTitle(data.lectureTitle);
   const finalIndex = data.lectureIndex || cleanedMeta.index || 1;
@@ -615,13 +656,27 @@ function renderLecture(data) {
   const bestResSubtext = document.getElementById('best-res-subtext');
   const highestQualityTag = document.getElementById('highest-quality-tag');
 
-  if (best) {
+  if (isDrm && (!data.streams || data.streams.length === 0)) {
+    highestQualityTag.textContent = 'Khóa DRM';
+    highestQualityTag.style.color = '#f87171';
+    bestResSubtext.textContent = 'Bị khóa DRM (SAMPLE-AES) - Hãy dùng Engine 2 bên dưới';
+    btnDownloadBest.disabled = false;
+    btnDownloadBest.onclick = () => {
+      const btnStartRecord = document.getElementById('btn-start-record');
+      if (btnStartRecord) {
+        btnStartRecord.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        showStatusBanner('Bài này bị khóa DRM Widevine. Vui lòng bấm BẮT ĐẦU GHI ENGINE 2 bên dưới!', 'error');
+      }
+    };
+  } else if (best) {
     highestQualityTag.textContent = `${best.label}p HD`;
+    highestQualityTag.style.color = '';
     bestResSubtext.textContent = `Độ phân giải: ${best.label}p MP4 (Engine 1)`;
     btnDownloadBest.disabled = false;
     btnDownloadBest.onclick = () => openDownloaderForStream(best);
   } else {
     highestQualityTag.textContent = 'Chưa bắt luồng';
+    highestQualityTag.style.color = '';
     bestResSubtext.textContent = 'Bấm Play video để nhận diện chất lượng';
     btnDownloadBest.disabled = true;
   }
@@ -805,32 +860,125 @@ function initEngine2Controls() {
 
   if (!btnStart || !btnStop) return;
 
+  const linkChromeSettings = document.getElementById('link-chrome-settings');
+  if (linkChromeSettings) {
+    linkChromeSettings.addEventListener('click', () => {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText('chrome://settings/system').then(() => {
+          showStatusBanner('📋 Đã copy "chrome://settings/system"! Hãy dán vào tab mới để tắt Tăng tốc phần cứng.', 'info');
+        }).catch(() => {
+          showStatusBanner('Vui lòng mở tab mới và truy cập: chrome://settings/system', 'info');
+        });
+      } else {
+        showStatusBanner('Vui lòng mở tab mới và truy cập: chrome://settings/system', 'info');
+      }
+    });
+  }
+
+  let autoStopTimer = null;
+
   btnStart.addEventListener('click', async () => {
     try {
+      const muteSpeaker = Boolean(document.getElementById('cb-manual-drm-mute')?.checked);
+      const speed = Number(document.getElementById('select-manual-drm-speed')?.value) || 1.0;
+
+      const tab = targetUdemyTab || await getActiveUdemyTab();
+      if (!tab?.id) {
+        throw new Error('Không tìm thấy tab Udemy đang phát bài giảng. Vui lòng mở lại trang bài giảng trên Udemy.');
+      }
+
+      // Kích hoạt tab Udemy để đảm bảo tab không bị trình duyệt đóng băng (thường xảy ra khi mở popup dạng window)
+      try {
+        await chrome.tabs.update(tab.id, { active: true });
+      } catch (e) {}
+
+      // Kích hoạt Cinema Mode trên tab Udemy để video tràn toàn màn hình
+      if (tab?.id) {
+        chrome.tabs.sendMessage(tab.id, { type: 'ENABLE_CINEMA_MODE_FOR_RECORDING' }).catch(() => {});
+      }
+
       tabRecorderInstance = new TabRecorder();
+      tabRecorderInstance.onTrackEnded = () => {
+        // Khi người dùng bấm "Dừng chia sẻ" trên thanh thông báo gốc của Chrome
+        if (btnStop && !btnStop.classList.contains('hidden')) {
+          btnStop.click();
+        }
+      };
+
       await tabRecorderInstance.startRecording({
+        targetTabId: tab.id,
+        muteSpeaker,
         onUpdate: ({ elapsedSec, totalMb }) => {
           const m = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
           const s = String(elapsedSec % 60).padStart(2, '0');
-          timerEl.textContent = `${m}:${s}`;
-          sizeEl.textContent = `${totalMb} MB`;
+          if (timerEl) timerEl.textContent = `${m}:${s}`;
+          if (sizeEl) sizeEl.textContent = `${totalMb} MB`;
         }
       });
 
+      // Điều khiển tab phát video với tốc độ đã chọn từ đầu bài (00:00)
+      if (tab?.id) {
+        chrome.tabs.sendMessage(tab.id, {
+          type: 'PLAY_VIDEO_FOR_RECORDING',
+          playbackSpeed: speed,
+          startFromBeginning: true
+        }).catch(() => {});
+      }
+
       btnStart.classList.add('hidden');
-      recordBox.classList.remove('hidden');
-      showStatusBanner('Engine 2 đang ghi lại luồng phát video...', 'success');
+      recordBox?.classList.remove('hidden');
+      showStatusBanner(`Engine 2.0 đang ghi Cinema Mode (${speed}x, ${muteSpeaker ? 'Tắt loa ngoài' : 'Có tiếng'})...`, 'success');
+
+      // Tự động kiểm tra và dừng ghi khi video kết thúc
+      if (autoStopTimer) clearInterval(autoStopTimer);
+      autoStopTimer = setInterval(async () => {
+        if (!tabRecorderInstance) {
+          clearInterval(autoStopTimer);
+          return;
+        }
+        try {
+          const checkTab = targetUdemyTab || await getActiveUdemyTab();
+          if (checkTab?.id) {
+            const state = await sendTabMessageWithTimeout(checkTab.id, { type: 'GET_VIDEO_PLAYBACK_STATE' }, 800);
+            if (state && state.ended) {
+              clearInterval(autoStopTimer);
+              btnStop.click();
+            }
+          }
+        } catch (e) {}
+      }, 1000);
     } catch (e) {
-      alert('Không thể bắt đầu ghi luồng: ' + e.message);
+      const tab = targetUdemyTab || await getActiveUdemyTab();
+      if (tab?.id) {
+        chrome.tabs.sendMessage(tab.id, { type: 'DISABLE_CINEMA_MODE_FOR_RECORDING' }).catch(() => {});
+      }
+      if (e.isCancelled || e.name === 'NotAllowedError' || e.name === 'AbortError') {
+        showStatusBanner('Đã hủy kích hoạt Engine 2.0 (bạn chưa bấm Chia sẻ tab).', 'info');
+      } else {
+        alert('Không thể bắt đầu ghi luồng: ' + e.message);
+      }
+      tabRecorderInstance = null;
     }
   });
 
   btnStop.addEventListener('click', async () => {
+    if (autoStopTimer) {
+      clearInterval(autoStopTimer);
+      autoStopTimer = null;
+    }
+
     if (!tabRecorderInstance) return;
 
     try {
       showStatusBanner('Đang hoàn thiện và lưu video...', 'success');
+      const tab = targetUdemyTab || await getActiveUdemyTab();
+      if (tab?.id) {
+        chrome.tabs.sendMessage(tab.id, { type: 'PAUSE_VIDEO_FOR_RECORDING' }).catch(() => {});
+        chrome.tabs.sendMessage(tab.id, { type: 'DISABLE_CINEMA_MODE_FOR_RECORDING' }).catch(() => {});
+      }
+
       const result = await tabRecorderInstance.stopRecording();
+      tabRecorderInstance = null;
 
       const blobUrl = URL.createObjectURL(result.blob);
       const courseTitle = currentLecture?.courseTitle || 'Udemy Course';
@@ -850,9 +998,24 @@ function initEngine2Controls() {
         }
       });
 
-      recordBox.classList.add('hidden');
+      // Tự động tải kèm phụ đề .SRT nếu bài có phụ đề
+      const engCap = currentLecture?.captions ? findEnglishCaption(currentLecture.captions) : null;
+      const targetCap = engCap || currentLecture?.captions?.[0];
+      if (targetCap && targetCap.url) {
+        try {
+          await downloadSubtitleAsSrt(targetCap.url);
+          showStatusBanner('Ghi video thành công và đã lưu kèm phụ đề .SRT!', 'success');
+        } catch (e) {
+          showStatusBanner('Ghi video thành công và đã gửi lệnh tải!', 'success');
+        }
+      } else {
+        showStatusBanner('Ghi video thành công và đã gửi lệnh tải!', 'success');
+      }
+
+      recordBox?.classList.add('hidden');
       btnStart.classList.remove('hidden');
-      showStatusBanner('Ghi video thành công và đã gửi lệnh tải!', 'success');
+      if (timerEl) timerEl.textContent = '00:00';
+      if (sizeEl) sizeEl.textContent = '0.0 MB';
     } catch (e) {
       alert('Lỗi khi dừng ghi: ' + e.message);
     }
@@ -1183,6 +1346,23 @@ const batchManager = {
         this.userDecisionResolver = null;
       }
     });
+
+    const btnBatchStartDrm = document.getElementById('btn-batch-start-drm');
+    const btnBatchSkipDrm = document.getElementById('btn-batch-skip-drm');
+
+    btnBatchStartDrm?.addEventListener('click', () => {
+      if (this.drmPromptResolver) {
+        this.drmPromptResolver(true);
+        this.drmPromptResolver = null;
+      }
+    });
+
+    btnBatchSkipDrm?.addEventListener('click', () => {
+      if (this.drmPromptResolver) {
+        this.drmPromptResolver(false);
+        this.drmPromptResolver = null;
+      }
+    });
   },
 
   async start(count) {
@@ -1201,6 +1381,29 @@ const batchManager = {
     const tab = targetUdemyTab || await getActiveUdemyTab();
     if (!tab?.id) {
       alert('Không tìm thấy tab Udemy đang hoạt động.');
+      return;
+    }
+
+    // Nếu người dùng cấu hình tự động ghi DRM (Engine 2) -> chạy AutoBatch trực tiếp trên tab/popup
+    if (currentSettings.autoRecordDrm) {
+      this.isRunning = true;
+      this.isPaused = false;
+      this.targetCount = count;
+      this.completedCount = 0;
+      this.processedLectureIds.clear();
+
+      const configView = document.getElementById('batch-config-view');
+      const liveView = document.getElementById('batch-live-view');
+      const runningBadge = document.getElementById('batch-running-badge');
+      const btnPause = document.getElementById('btn-batch-pause');
+
+      configView?.classList.add('hidden');
+      liveView?.classList.remove('hidden');
+      runningBadge?.classList.remove('hidden');
+      if (btnPause) btnPause.textContent = '⏸️ Tạm dừng';
+
+      this.updateOverallProgress();
+      this.runLoop();
       return;
     }
 
@@ -1307,17 +1510,33 @@ const batchManager = {
       this.userDecisionResolver('abort');
       this.userDecisionResolver = null;
     }
+    if (this.drmPromptResolver) {
+      this.drmPromptResolver(false);
+      this.drmPromptResolver = null;
+    }
+    if (this.tabRecorder && this.tabRecorder.isRecording) {
+      try { this.tabRecorder.stopRecording(); } catch (e) {}
+      this.tabRecorder = null;
+      getActiveUdemyTab().then(tab => {
+        if (tab?.id) {
+          chrome.tabs.sendMessage(tab.id, { type: 'PAUSE_VIDEO_FOR_RECORDING' }).catch(() => {});
+          chrome.tabs.sendMessage(tab.id, { type: 'DISABLE_CINEMA_MODE_FOR_RECORDING' }).catch(() => {});
+        }
+      }).catch(() => {});
+    }
 
     const configView = document.getElementById('batch-config-view');
     const liveView = document.getElementById('batch-live-view');
     const runningBadge = document.getElementById('batch-running-badge');
     const promptBox = document.getElementById('batch-no-sub-prompt');
+    const drmPromptBox = document.getElementById('batch-drm-prompt');
     const cooldownBox = document.getElementById('batch-cooldown-box');
 
     configView?.classList.remove('hidden');
     liveView?.classList.add('hidden');
     runningBadge?.classList.add('hidden');
     promptBox?.classList.add('hidden');
+    drmPromptBox?.classList.add('hidden');
     cooldownBox?.classList.add('hidden');
 
     if (isFinished) {
@@ -1386,14 +1605,89 @@ const batchManager = {
       const displayTitle = `${padIndex(displayIndex)} - ${cleaned.title}`;
       if (currentLectureNameEl) currentLectureNameEl.textContent = displayTitle;
 
-      // 2. Tự động bỏ qua Quiz, Bài đọc (Article) hoặc DRM Widevine
-      if (lecture.isQuiz || lecture.isArticle || lecture.isDrmProtected) {
-        const typeLabel = lecture.isQuiz ? 'Quiz' : (lecture.isArticle ? 'Bài đọc' : 'DRM');
+      // 2. Tự động bỏ qua Quiz hoặc Bài đọc (Article)
+      if (lecture.isQuiz || lecture.isArticle) {
+        const typeLabel = lecture.isQuiz ? 'Quiz' : 'Bài đọc';
         if (videoStatusEl) videoStatusEl.textContent = `Bài này là ${typeLabel} (bỏ qua)...`;
         this.processedLectureIds.add(String(lecture.lectureId));
         await new Promise(r => setTimeout(r, 1500));
         await this.goToNext();
         continue;
+      }
+
+      // 2.1 Xử lý bài giảng bị mã hóa DRM (Widevine)
+      if (lecture.isDrmProtected) {
+        if (lecture.hasNonDrmFallback && (lecture.bestQuality || lecture.streams?.length > 0)) {
+          if (videoStatusEl) {
+            videoStatusEl.textContent = `Bài khóa DRM nhưng có luồng mở (${lecture.bestQuality?.label || '720'}p), đang tải...`;
+          }
+          // Tiếp tục bước 3 để Engine 1 tải luồng non-DRM fallback
+        } else if (currentSettings.autoRecordDrm) {
+          // Bật chế độ tự động ghi Engine 2
+          const speed = Number(currentSettings.drmSpeed) || 1.0;
+          const mute = currentSettings.drmMuteSpeaker !== false;
+          try {
+            const recorded = await this.recordDrmLecture(lecture, {
+              speed,
+              muteSpeaker: mute,
+              videoStatusEl,
+              videoBarEl,
+              captionStatusEl,
+              promptBox
+            });
+            if (recorded === false) {
+              this.processedLectureIds.add(String(lecture.lectureId));
+              await new Promise(r => setTimeout(r, 1000));
+              await this.goToNext();
+              continue;
+            }
+          } catch (recErr) {
+            if (!this.isRunning) return;
+            console.error('Lỗi ghi luồng DRM trong batch:', recErr);
+            if (videoStatusEl) videoStatusEl.textContent = `⚠️ Lỗi ghi DRM: ${recErr.message} (Bỏ qua)`;
+            this.processedLectureIds.add(String(lecture.lectureId));
+            await new Promise(r => setTimeout(r, 1500));
+            await this.goToNext();
+            continue;
+          }
+
+          // Hoàn tất 1 bài DRM thành công
+          this.processedLectureIds.add(String(lecture.lectureId));
+          this.completedCount++;
+          this.updateOverallProgress();
+
+          if (this.completedCount >= this.targetCount) {
+            this.stop(true);
+            break;
+          }
+
+          await this.checkPause();
+          if (!this.isRunning) break;
+
+          // Cooldown 3 giây trước khi Next bài tiếp theo
+          if (cooldownBox) {
+            cooldownBox.classList.remove('hidden');
+            const cooldownText = document.getElementById('batch-cooldown-text');
+            for (let s = 3; s > 0; s--) {
+              if (!this.isRunning) break;
+              await this.checkPause();
+              if (cooldownText) cooldownText.textContent = `Nghỉ ${s}s... chuẩn bị chuyển bài tiếp`;
+              await new Promise(r => setTimeout(r, 1000));
+            }
+            cooldownBox.classList.add('hidden');
+          }
+
+          if (!this.isRunning) break;
+          await this.goToNext();
+          continue;
+        } else {
+          // autoRecordDrm tắt -> Bỏ qua bài DRM
+          if (videoStatusEl) videoStatusEl.textContent = 'Bài này bị khóa DRM (Đã bỏ qua)...';
+          this.processedLectureIds.add(String(lecture.lectureId));
+          await new Promise(r => setTimeout(r, 1500));
+          await this.goToNext();
+          continue;
+        }
       }
 
       // 3. Tải Video (Chất lượng cao nhất 1080p > 720p)
@@ -1436,6 +1730,77 @@ const batchManager = {
       } catch (videoErr) {
         if (videoErr.name === 'AbortError' || !this.isRunning) return;
         console.error('Lỗi tải video trong batch:', videoErr);
+
+        const isDrmError = videoErr.message?.includes('SAMPLE-AES') || videoErr.message?.includes('Widevine DRM') || videoErr.message?.includes('bản quyền');
+        if (isDrmError) {
+          lecture.isDrmProtected = true;
+          lecture.hasNonDrmFallback = false;
+
+          if (currentSettings.autoRecordDrm) {
+            console.log('[AutoBatch] Phát hiện luồng DRM ở tầng HLS, tự động chuyển sang Engine 2 ghi luồng phát...');
+            const speed = Number(currentSettings.drmSpeed) || 1.0;
+            const mute = currentSettings.drmMuteSpeaker !== false;
+            try {
+              const recorded = await this.recordDrmLecture(lecture, {
+                speed,
+                muteSpeaker: mute,
+                videoStatusEl,
+                videoBarEl,
+                captionStatusEl,
+                promptBox
+              });
+              if (recorded === false) {
+                this.processedLectureIds.add(String(lecture.lectureId));
+                await new Promise(r => setTimeout(r, 1000));
+                await this.goToNext();
+                continue;
+              }
+
+              this.processedLectureIds.add(String(lecture.lectureId));
+              this.completedCount++;
+              this.updateOverallProgress();
+
+              if (this.completedCount >= this.targetCount) {
+                this.stop(true);
+                break;
+              }
+
+              await this.checkPause();
+              if (!this.isRunning) break;
+
+              if (cooldownBox) {
+                cooldownBox.classList.remove('hidden');
+                const cooldownText = document.getElementById('batch-cooldown-text');
+                for (let s = 3; s > 0; s--) {
+                  if (!this.isRunning) break;
+                  await this.checkPause();
+                  if (cooldownText) cooldownText.textContent = `Nghỉ ${s}s... chuẩn bị chuyển bài tiếp`;
+                  await new Promise(r => setTimeout(r, 1000));
+                }
+                cooldownBox.classList.add('hidden');
+              }
+
+              if (!this.isRunning) break;
+              await this.goToNext();
+              continue;
+            } catch (recErr) {
+              console.error('Lỗi ghi DRM fallback:', recErr);
+              if (videoStatusEl) videoStatusEl.textContent = `⚠️ Lỗi ghi DRM: ${recErr.message} (Bỏ qua)`;
+              this.processedLectureIds.add(String(lecture.lectureId));
+              await new Promise(r => setTimeout(r, 1500));
+              await this.goToNext();
+              continue;
+            }
+          } else {
+            // Tự động bỏ qua bài DRM khi autoRecordDrm tắt, KHÔNG làm kẹt chuỗi tải bằng alert!
+            if (videoStatusEl) videoStatusEl.textContent = 'Bài này khóa DRM SAMPLE-AES (Đã tự động bỏ qua)...';
+            this.processedLectureIds.add(String(lecture.lectureId));
+            await new Promise(r => setTimeout(r, 1500));
+            await this.goToNext();
+            continue;
+          }
+        }
+
         if (videoStatusEl) videoStatusEl.textContent = `❌ Lỗi video: ${videoErr.message}`;
         alert(`Lỗi khi tải video bài "${displayTitle}": ${videoErr.message}`);
         this.stop(false);
@@ -1503,6 +1868,193 @@ const batchManager = {
 
       // 6. Kích hoạt Next sang bài tiếp theo
       await this.goToNext();
+    }
+  },
+
+  async recordDrmLecture(lecture, { speed = 1.0, muteSpeaker = true, videoStatusEl, videoBarEl, captionStatusEl, promptBox }) {
+    const tab = targetUdemyTab || await getActiveUdemyTab();
+    if (!tab?.id) {
+      throw new Error('Không tìm thấy tab Udemy để ghi luồng phát.');
+    }
+
+    const cleaned = cleanLectureTitle(lecture.lectureTitle);
+    const displayIndex = lecture.lectureIndex || cleaned.index || 1;
+    const displayTitle = `${padIndex(displayIndex)} - ${cleaned.title}`;
+
+    if (videoStatusEl) videoStatusEl.textContent = `🎬 Đang khởi động ghi Engine 2.0 (${speed}x, ${muteSpeaker ? 'Tắt loa' : 'Có tiếng'})...`;
+    if (videoBarEl) videoBarEl.style.width = '0%';
+
+    // Kích hoạt Cinema Mode trên tab Udemy để video tràn toàn màn hình
+    if (tab?.id) {
+      chrome.tabs.sendMessage(tab.id, { type: 'ENABLE_CINEMA_MODE_FOR_RECORDING' }).catch(() => {});
+    }
+
+    this.tabRecorder = new TabRecorder();
+
+    const onUpdateCallback = ({ elapsedSec, totalMb }) => {
+      const m = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
+      const s = String(elapsedSec % 60).padStart(2, '0');
+      if (videoStatusEl) {
+        videoStatusEl.textContent = `🔴 Đang ghi (${speed}x): ${m}:${s} (${totalMb.toFixed(1)} MB)`;
+      }
+      if (lecture.duration > 0 && videoBarEl) {
+        const effectiveDuration = lecture.duration / speed;
+        const pct = Math.min(99, Math.round((elapsedSec / effectiveDuration) * 100));
+        videoBarEl.style.width = `${pct}%`;
+      }
+    };
+
+    // 1. Khởi động TabRecorder
+    let recordingStarted = false;
+    this.tabRecorder.onTrackEnded = () => {
+      // Tự động hoàn tất khi người dùng bấm "Dừng chia sẻ" trên thanh thông báo gốc của Chrome
+      isFinished = true;
+    };
+
+    try {
+      await this.tabRecorder.startRecording({
+        targetTabId: tab.id,
+        muteSpeaker,
+        onUpdate: onUpdateCallback
+      });
+      recordingStarted = true;
+    } catch (captureErr) {
+      console.warn('[AutoBatch] Yêu cầu tương tác người dùng để chia sẻ tab:', captureErr);
+      const drmPromptBox = document.getElementById('batch-drm-prompt');
+      if (drmPromptBox) {
+        drmPromptBox.classList.remove('hidden');
+        if (videoStatusEl) videoStatusEl.textContent = '🔒 Bài này khóa DRM. Vui lòng bấm "Bắt đầu ghi" bên dưới...';
+
+        const userAccepted = await new Promise(resolve => {
+          this.drmPromptResolver = resolve;
+        });
+        drmPromptBox.classList.add('hidden');
+
+        if (!userAccepted || !this.isRunning) {
+          if (videoStatusEl) videoStatusEl.textContent = '⏭️ Đã bỏ qua bài DRM';
+          if (tab?.id) {
+            chrome.tabs.sendMessage(tab.id, { type: 'DISABLE_CINEMA_MODE_FOR_RECORDING' }).catch(() => {});
+          }
+          return false;
+        }
+
+        try {
+          await this.tabRecorder.startRecording({
+            targetTabId: tab.id,
+            muteSpeaker,
+            onUpdate: onUpdateCallback
+          });
+          recordingStarted = true;
+        } catch (retryErr) {
+          console.warn('[AutoBatch] Không thể kích hoạt chia sẻ tab sau khi người dùng xác nhận:', retryErr);
+          if (videoStatusEl) videoStatusEl.textContent = '⏭️ Đã bỏ qua bài DRM (chưa cấp quyền chia sẻ tab)';
+          if (tab?.id) {
+            chrome.tabs.sendMessage(tab.id, { type: 'DISABLE_CINEMA_MODE_FOR_RECORDING' }).catch(() => {});
+          }
+          return false;
+        }
+      } else {
+        if (tab?.id) {
+          chrome.tabs.sendMessage(tab.id, { type: 'DISABLE_CINEMA_MODE_FOR_RECORDING' }).catch(() => {});
+        }
+        throw captureErr;
+      }
+    }
+
+    if (!recordingStarted) {
+      if (tab?.id) {
+        chrome.tabs.sendMessage(tab.id, { type: 'DISABLE_CINEMA_MODE_FOR_RECORDING' }).catch(() => {});
+      }
+      return false;
+    }
+
+    // 2. Gửi thông điệp điều khiển phát video từ đầu trên tab
+    await new Promise((resolve) => {
+      chrome.tabs.sendMessage(tab.id, {
+        type: 'PLAY_VIDEO_FOR_RECORDING',
+        playbackSpeed: speed,
+        startFromBeginning: true
+      }, (res) => {
+        resolve(res);
+      });
+    });
+
+    // 3. Giám sát phát video
+    const pollInterval = 1000;
+    let isFinished = false;
+    let lastTime = 0;
+    let stalledCount = 0;
+
+    while (this.isRunning && !isFinished) {
+      await this.checkPause();
+      if (!this.isRunning) break;
+
+      await new Promise(r => setTimeout(r, pollInterval));
+      if (!this.isRunning) break;
+
+      const state = await new Promise(resolve => {
+        chrome.tabs.sendMessage(tab.id, { type: 'GET_VIDEO_PLAYBACK_STATE' }, (r) => {
+          resolve(r || null);
+        });
+      });
+
+      if (state) {
+        if (state.ended) {
+          isFinished = true;
+          break;
+        }
+        if (state.duration > 0 && state.currentTime >= (state.duration - 1)) {
+          isFinished = true;
+          break;
+        }
+        if (state.currentTime === lastTime && !state.paused) {
+          stalledCount++;
+          if (stalledCount > 15) {
+            console.warn('[AutoBatch DRM] Video dừng tiến triển sau 15s, hoàn tất ghi.');
+            isFinished = true;
+            break;
+          }
+        } else {
+          stalledCount = 0;
+          lastTime = state.currentTime;
+        }
+      }
+    }
+
+    // 4. Tạm dừng video, tắt Cinema Mode và dừng ghi
+    chrome.tabs.sendMessage(tab.id, { type: 'PAUSE_VIDEO_FOR_RECORDING' }).catch(() => {});
+    chrome.tabs.sendMessage(tab.id, { type: 'DISABLE_CINEMA_MODE_FOR_RECORDING' }).catch(() => {});
+    if (videoStatusEl) videoStatusEl.textContent = 'Đang hoàn tất và đóng gói video...';
+
+    const recordResult = await this.tabRecorder.stopRecording();
+    this.tabRecorder = null;
+
+    if (!this.isRunning) return;
+
+    if (videoBarEl) videoBarEl.style.width = '100%';
+
+    // 5. Lưu video đã ghi
+    const streamInfo = {
+      label: '1080',
+      resolution: 1080,
+      type: recordResult.blob.type || 'video/mp4'
+    };
+    await saveVideoBlobDirectly(recordResult.blob, lecture, streamInfo, currentSettings, activeFsHandle);
+    if (videoStatusEl) videoStatusEl.textContent = `✅ Xong DRM (${(recordResult.sizeBytes / (1024 * 1024)).toFixed(1)} MB)`;
+
+    // 6. Tải phụ đề Tiếng Anh (nếu có)
+    const enCap = findEnglishCaption(lecture.captions);
+    if (!enCap) {
+      if (captionStatusEl) captionStatusEl.textContent = '⚠️ Không có phụ đề Tiếng Anh';
+    } else {
+      if (captionStatusEl) captionStatusEl.textContent = 'Đang tải phụ đề .srt...';
+      try {
+        await downloadSubtitleAsSrtForBatch(enCap.url, lecture, currentSettings, activeFsHandle);
+        if (captionStatusEl) captionStatusEl.textContent = '✅ Xong phụ đề (.srt)';
+      } catch (subErr) {
+        console.warn('Lỗi tải phụ đề trong batch:', subErr);
+        if (captionStatusEl) captionStatusEl.textContent = `⚠️ Lỗi phụ đề: ${subErr.message}`;
+      }
     }
   },
 

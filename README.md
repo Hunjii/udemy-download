@@ -16,10 +16,11 @@ Tại sao các extension thông thường không tìm thấy luồng tải? Vì 
 - **Ghép thành file MP4 hoàn chỉnh:** Đóng gói các phân đoạn thành 1 file `.mp4` chuẩn duy nhất, mở xem tốt trên mọi thiết bị và trình phát (VLC, Windows Media Player, điện thoại...).
 - **Cửa sổ tải độc lập (Downloader Window):** Mở cửa sổ tiến trình tải riêng biệt, không lo bị ngắt quãng khi click ra ngoài popup.
 
-### 🛡️ Engine 2: Tab Stream Recorder (Bypass 100% Widevine DRM)
-- Đối với các bài giảng đặc biệt bị khóa bởi bản quyền **Widevine DRM** (không thể trích xuất file thô bằng thuật toán thông thường).
-- Tiện ích cho phép kích hoạt **Engine 2: Ghi luồng phát trực tiếp** từ trình phát tab Udemy với độ phân giải gốc 1080p và âm thanh chất lượng cao.
-- Bypass 100% mọi rào cản bản quyền vì thu lại trực tiếp luồng hình ảnh đã giải mã trên màn hình của bạn.
+### 🛡️ Engine 2.0: Cinema Mode Studio (Bypass 100% Widevine DRM Chuẩn Nét)
+- Đối với các bài giảng đặc biệt bị khóa bởi bản quyền **Widevine DRM (SAMPLE-AES)** không thể trích xuất file thô bằng HLS downloader.
+- **Cinema Mode Studio tự động**: Tự động phóng to video lấp đầy 100% viewport tab và ẩn thanh công cụ Udemy, tối ưu độ nét 1080p và tránh vỡ hạt.
+- **Bộ vá Metadata MP4 độc quyền**: Tự động vá các hộp `mvhd`/`tkhd`/`mdhd` thời lượng, giải quyết dứt điểm hiện tượng video bị xước hình, giật đơ hoặc không tua được trên Windows Media Player/Movies & TV.
+- **Chuẩn hóa tốc độ 1.0x & H.264 MP4**: Ghi luồng mượt mà 0% drop frame, lưu kèm phụ đề tiếng Anh `.SRT` chuẩn xác.
 
 ---
 

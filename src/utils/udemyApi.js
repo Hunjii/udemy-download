@@ -202,10 +202,11 @@ async function resolveHlsMedia(m3u8Url, tabId = null) {
         file: v.url || targetUrl,
         type: 'hls'
       })).sort((a, b) => b.resolution - a.resolution),
-      subtitles: parsed.subtitles || []
+      subtitles: parsed.subtitles || [],
+      isDrm: parsed.isDrm || false
     };
   } catch (err) {
-    return { streams: [], subtitles: [] };
+    return { streams: [], subtitles: [], isDrm: false };
   }
 }
 
@@ -234,15 +235,7 @@ export async function fetchLectureMediaData(courseId, lectureId, tabId = null) {
   const asset = payload.asset || {};
   const streamUrls = asset.stream_urls || payload.stream_urls || {};
 
-  // 1. Kiểm tra DRM
-  const isDrmProtected = Boolean(
-    asset.course_is_drmed ||
-    payload.course_is_drmed ||
-    (!streamUrls.hls && !streamUrls.Video && (streamUrls.dash || streamUrls.encrypted_hls)) ||
-    Boolean(asset.media_license_token)
-  );
-
-  // 2. Thu thập luồng MP4
+  // 1. Thu thập luồng MP4
   const rawVideo = streamUrls.Video || [];
   let mp4Streams = [];
   if (Array.isArray(rawVideo)) {
@@ -256,7 +249,7 @@ export async function fetchLectureMediaData(courseId, lectureId, tabId = null) {
       }));
   }
 
-  // 3. Thu thập luồng HLS
+  // 2. Thu thập luồng HLS
   let hlsMasterUrl = null;
   if (Array.isArray(streamUrls.hls) && streamUrls.hls.length > 0 && streamUrls.hls[0].file) {
     hlsMasterUrl = streamUrls.hls[0].file;
@@ -267,11 +260,26 @@ export async function fetchLectureMediaData(courseId, lectureId, tabId = null) {
 
   let hlsStreams = [];
   let hlsSubtitles = [];
+  let isHlsDrm = false;
   if (hlsMasterUrl) {
     const hlsData = await resolveHlsMedia(hlsMasterUrl, tabId);
-    hlsStreams = hlsData.streams || [];
+    isHlsDrm = Boolean(hlsData.isDrm);
+    if (isHlsDrm) {
+      hlsStreams = [];
+    } else {
+      hlsStreams = hlsData.streams || [];
+    }
     hlsSubtitles = hlsData.subtitles || [];
   }
+
+  // 3. Kiểm tra DRM
+  const isDrmProtected = Boolean(
+    asset.course_is_drmed ||
+    payload.course_is_drmed ||
+    isHlsDrm ||
+    (!streamUrls.hls && !streamUrls.Video && (streamUrls.dash || streamUrls.encrypted_hls)) ||
+    Boolean(asset.media_license_token)
+  );
 
   // Hợp nhất luồng: ưu tiên HLS cao nhất
   let streams = [];
@@ -330,6 +338,7 @@ export async function fetchLectureMediaData(courseId, lectureId, tabId = null) {
     index: payload.object_index || 1,
     duration: asset.time_estimation || 0,
     isDrmProtected,
+    hasNonDrmFallback: Boolean(isDrmProtected && streams.length > 0),
     streams,
     bestQuality: streams.length > 0 ? streams[0] : null,
     captions: allCaptions,
